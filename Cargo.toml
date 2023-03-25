@@ -7,4 +7,7 @@ edition = "2021"
 
 [dependencies]
 async-trait = "0.1.66"
-tokio = { version = "1.26.0", features = ["fs"] }
+derivative = "2.2.0"
+derive-getters = "0.2.0"
+futures = "0.3.27"
+tokio = { version = "1.26.0", features = ["fs", "sync"] }
