@@ -1044,4 +1044,27 @@ mod tests {
 
         Ok(())
     }
+
+    #[tokio::test]
+    async fn test_remove_dir() -> Result<()> {
+        let mut fs = MemFloppyDisk::new();
+        fs.create_dir("/test").await?;
+        fs.remove_dir("/test").await?;
+        assert!(fs.metadata("/test").await.is_err());
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_remove_dir_all() -> Result<()> {
+        let mut fs = MemFloppyDisk::new();
+        fs.create_dir_all("/test/a/b/c").await?;
+        fs.remove_dir_all("/test").await?;
+        assert!(fs.metadata("/test").await.is_err());
+        assert!(fs.metadata("/test/a").await.is_err());
+        assert!(fs.metadata("/test/a/b").await.is_err());
+        assert!(fs.metadata("/test/a/b/c").await.is_err());
+
+        Ok(())
+    }
 }
