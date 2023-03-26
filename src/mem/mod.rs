@@ -11,6 +11,7 @@ use derivative::Derivative;
 use futures::Future;
 use tokio::io::{AsyncRead, AsyncSeek, AsyncWrite};
 use tokio::sync::Mutex;
+use tokio::sync::RwLockWriteGuard;
 
 use crate::FloppyDirEntry;
 use crate::FloppyDisk;
@@ -21,6 +22,7 @@ use crate::{FloppyFile, FloppyFileType, FloppyMetadata, FloppyPermissions};
 use self::inode::{Inode, InodeType};
 
 type TokioRwLock<T> = tokio::sync::RwLock<T>;
+type MemTree = BTreeMap<PathBuf, Arc<TokioRwLock<Inode>>>;
 
 mod inode;
 
@@ -28,7 +30,7 @@ mod inode;
 #[derivative(Debug)]
 pub struct MemFloppyDisk<'a> {
     inode_serial: u64,
-    fs: tokio::sync::RwLock<BTreeMap<PathBuf, Arc<TokioRwLock<Inode>>>>,
+    fs: tokio::sync::RwLock<MemTree>,
     #[derivative(Debug = "ignore")]
     _phantom: std::marker::PhantomData<&'a ()>,
 }
@@ -36,28 +38,38 @@ pub struct MemFloppyDisk<'a> {
 impl MemFloppyDisk<'_> {
     #[allow(clippy::new_without_default)]
     pub fn new() -> Self {
+        let fs = {
+            let mut fs = BTreeMap::new();
+            let root_node = Inode::new_dir(0, PathBuf::from("/"));
+            fs.insert(PathBuf::from("/"), Arc::new(TokioRwLock::new(root_node)));
+            fs
+        };
         Self {
-            inode_serial: 0,
-            fs: tokio::sync::RwLock::new(BTreeMap::new()),
+            inode_serial: 1,
+            fs: tokio::sync::RwLock::new(fs),
             _phantom: std::marker::PhantomData,
         }
     }
 
     async fn find_lowest_non_existing_parent(&self, input: &Path) -> Result<Option<PathBuf>> {
-        let mut path = PathBuf::new();
-        let mut found = false;
+        if let Some(parent) = input.parent() {
+            let mut path = PathBuf::new();
+            let mut found = false;
 
-        for component in input.components() {
-            path.push(component);
+            for component in parent.components() {
+                path.push(component);
 
-            if !self.fs.read().await.contains_key(&path) {
-                found = true;
-                break;
+                if !self.fs.read().await.contains_key(&path) {
+                    found = true;
+                    break;
+                }
             }
-        }
 
-        if found {
-            Ok(Some(path))
+            if found {
+                Ok(Some(path))
+            } else {
+                Ok(None)
+            }
         } else {
             Ok(None)
         }
@@ -68,7 +80,7 @@ impl MemFloppyDisk<'_> {
         if let Some(non_existing_parent) = self.find_lowest_non_existing_parent(path).await? {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::NotFound,
-                format!("{non_existing_parent:?} does not exist"),
+                format!("make_sure_parent_exists: {non_existing_parent:?} does not exist"),
             ));
         }
 
@@ -82,7 +94,7 @@ impl MemFloppyDisk<'_> {
         if let Some(non_existing_parent) = self.find_lowest_non_existing_parent(path).await? {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::NotFound,
-                format!("{non_existing_parent:?} does not exist"),
+                format!("make_sure_path_exists: {non_existing_parent:?} does not exist"),
             ));
         }
 
@@ -90,7 +102,7 @@ impl MemFloppyDisk<'_> {
         if !fs.contains_key(path) {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::NotFound,
-                format!("{path:?} does not exist"),
+                format!("make_sure_path_exists: {path:?} does not exist"),
             ));
         }
 
@@ -104,7 +116,7 @@ impl MemFloppyDisk<'_> {
         if let Some(non_existing_parent) = self.find_lowest_non_existing_parent(path).await? {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::NotFound,
-                format!("{non_existing_parent:?} does not exist"),
+                format!("make_sure_path_doesnt_exist: {non_existing_parent:?} does not exist"),
             ));
         }
 
@@ -112,7 +124,7 @@ impl MemFloppyDisk<'_> {
         if fs.contains_key(path) {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::AlreadyExists,
-                format!("{path:?} already exists"),
+                format!("make_sure_path_doesnt_exist: {path:?} already exists"),
             ));
         }
 
@@ -124,8 +136,12 @@ impl MemFloppyDisk<'_> {
         self.inode_serial
     }
 
-    async fn insert_inode<P: Into<PathBuf>>(&self, path: P, inode: Inode) -> Result<()> {
-        let mut fs = self.fs.write().await;
+    fn insert_inode<P: Into<PathBuf>>(
+        &self,
+        fs: &mut RwLockWriteGuard<'_, MemTree>,
+        path: P,
+        inode: Inode,
+    ) -> Result<()> {
         fs.insert(path.into(), Arc::new(tokio::sync::RwLock::new(inode)));
 
         Ok(())
@@ -171,13 +187,15 @@ impl<'a> FloppyDisk<'a> for MemFloppyDisk<'a> {
 
         // Resolve symlinks
         let fs = self.fs.read().await;
-        let mut inode = fs.get(&out).unwrap().read().await;
+        if let Some(inode) = fs.get(&out) {
+            let mut inode = inode.read().await;
 
-        while *inode.kind() == InodeType::Symlink {
-            assert!(inode.symlink_target().is_some());
-            let target = inode.symlink_target().as_ref().unwrap().clone();
-            out = target;
-            inode = fs.get(&out).unwrap().read().await;
+            while *inode.kind() == InodeType::Symlink {
+                assert!(inode.symlink_target().is_some());
+                let target = inode.symlink_target().as_ref().unwrap().clone();
+                out = target;
+                inode = fs.get(&out).unwrap().read().await;
+            }
         }
 
         Ok(out)
@@ -186,23 +204,31 @@ impl<'a> FloppyDisk<'a> for MemFloppyDisk<'a> {
     async fn copy<P: AsRef<Path> + Send>(&mut self, from: P, to: P) -> Result<u64> {
         let from = from.as_ref();
         let to = to.as_ref();
+        println!("make sure paths exist");
         self.make_sure_path_exists(from).await?;
-        self.make_sure_path_exists(to).await?;
 
         let next_inode = self.get_next_inode_serial();
         let mut fs = self.fs.write().await;
+        let to_inode = {
+            println!("acquire write lock");
+            println!("lock get!");
 
-        // Remove old inode
-        fs.remove(to);
+            // Remove old inode
+            println!("remove old inode");
+            fs.remove(to);
 
-        // Clone new inode from incoming path
-        let from_inode = fs.get(from).unwrap().read().await;
-        let mut to_inode = Inode::new_file(next_inode, from_inode.buffer().clone());
-        to_inode.set_permissions(from_inode.permissions());
+            // Clone new inode from incoming path
+            println!("clone new inode");
+            let from_inode = fs.get(from).unwrap().read().await;
+            let mut to_inode = Inode::new_file(next_inode, to, from_inode.buffer().clone());
+            to_inode.set_permissions(from_inode.permissions());
+            to_inode
+        };
 
         // Insert new inode
+        println!("insert new inode");
         let out = to_inode.len();
-        self.insert_inode(to, to_inode).await?;
+        self.insert_inode(&mut fs, to, to_inode)?;
 
         Ok(out)
     }
@@ -213,8 +239,10 @@ impl<'a> FloppyDisk<'a> for MemFloppyDisk<'a> {
 
         let next_inode = self.get_next_inode_serial();
 
-        let inode = Inode::new_dir(next_inode);
-        self.insert_inode(path, inode).await?;
+        let inode = Inode::new_dir(next_inode, path);
+
+        let mut fs = self.fs.write().await;
+        self.insert_inode(&mut fs, path, inode)?;
 
         Ok(())
     }
@@ -373,7 +401,7 @@ impl<'a> FloppyDisk<'a> for MemFloppyDisk<'a> {
         let mut new_inode = old_inode.read().await.clone();
         new_inode.set_serial(next_inode);
 
-        self.insert_inode(to, new_inode).await?;
+        self.insert_inode(&mut fs, to, new_inode)?;
 
         Ok(())
     }
@@ -402,8 +430,8 @@ impl<'a> FloppyDisk<'a> for MemFloppyDisk<'a> {
 
         let next_inode = self.get_next_inode_serial();
 
-        self.insert_inode(dst, Inode::new_symlink(next_inode, src))
-            .await?;
+        let mut fs = self.fs.write().await;
+        self.insert_inode(&mut fs, dst, Inode::new_symlink(next_inode, dst, src))?;
 
         Ok(())
     }
@@ -484,8 +512,9 @@ impl<'a> FloppyDisk<'a> for MemFloppyDisk<'a> {
 
         let next_inode = self.get_next_inode_serial();
 
-        let inode = Inode::new_file(next_inode, contents.as_ref().to_vec());
-        self.insert_inode(path, inode).await?;
+        let mut fs = self.fs.write().await;
+        let inode = Inode::new_file(next_inode, path, contents.as_ref().to_vec());
+        self.insert_inode(&mut fs, path, inode)?;
 
         Ok(())
     }
@@ -873,5 +902,51 @@ impl std::ops::Deref for MemTempDir<'_> {
 
     fn deref(&self) -> &Self::Target {
         &self.path
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::*;
+    use std::io::Result;
+
+    #[tokio::test]
+    async fn test_mem_floppy_disk() -> Result<()> {
+        let mut fs = MemFloppyDisk::new();
+        fs.write("/test.txt", "asdf").await?;
+        assert_eq!("asdf", fs.read_to_string("/test.txt").await?);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_canonicalize() -> Result<()> {
+        let fs = MemFloppyDisk::new();
+
+        assert_eq!(PathBuf::from("/"), fs.canonicalize("/").await?);
+        assert_eq!(PathBuf::from("/"), fs.canonicalize("/.").await?);
+        assert_eq!(PathBuf::from("/"), fs.canonicalize("/..").await?);
+        assert_eq!(PathBuf::from("/"), fs.canonicalize("/../..").await?);
+        assert_eq!(PathBuf::from("a"), fs.canonicalize("a").await?);
+        assert_eq!(PathBuf::from("a"), fs.canonicalize("a/.").await?);
+        assert_eq!(PathBuf::from("/a"), fs.canonicalize("/a/.").await?);
+        assert_eq!(PathBuf::from("/a"), fs.canonicalize("/a/../a").await?);
+        assert_eq!(
+            PathBuf::from("/"),
+            fs.canonicalize("/usr/bin/../../../../../../..").await?
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_copy() -> Result<()> {
+        let mut fs = MemFloppyDisk::new();
+        fs.write("/test.txt", "asdf").await?;
+        fs.copy("/test.txt", "/test2.txt").await?;
+        assert_eq!("asdf", fs.read_to_string("/test2.txt").await?);
+
+        Ok(())
     }
 }

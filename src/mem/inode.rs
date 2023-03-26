@@ -62,12 +62,12 @@ impl Inode {
         &mut self.buffer
     }
 
-    pub fn new_dir(next_inode: u64) -> Self {
+    pub fn new_dir<P: Into<PathBuf>>(next_inode: u64, path: P) -> Self {
         Self {
             serial: next_inode,
             kind: InodeType::Dir,
             mode: MemPermissions { mode: 0o755 },
-            path: PathBuf::new(),
+            path: path.into(),
             uid: 0,
             gid: 0,
             size: 0,
@@ -79,12 +79,12 @@ impl Inode {
         }
     }
 
-    pub fn new_file<V: Into<Vec<u8>>>(next_inode: u64, data: V) -> Self {
+    pub fn new_file<P: Into<PathBuf>, V: Into<Vec<u8>>>(next_inode: u64, path: P, data: V) -> Self {
         Self {
             serial: next_inode,
             kind: InodeType::File,
             mode: MemPermissions { mode: 0o644 },
-            path: PathBuf::new(),
+            path: path.into(),
             uid: 0,
             gid: 0,
             size: 0,
@@ -96,12 +96,12 @@ impl Inode {
         }
     }
 
-    pub fn new_symlink<P: Into<PathBuf>>(next_inode: u64, target: P) -> Self {
+    pub fn new_symlink<P: Into<PathBuf>>(next_inode: u64, path: P, target: P) -> Self {
         Self {
             serial: next_inode,
             kind: InodeType::Symlink,
             mode: MemPermissions { mode: 0o777 },
-            path: PathBuf::new(),
+            path: path.into(),
             uid: 0,
             gid: 0,
             size: 0,

@@ -11,4 +11,4 @@ derivative = "2.2.0"
 derive-getters = "0.2.0"
 futures = "0.3.27"
 rand = "0.8.5"
-tokio = { version = "1.26.0", features = ["fs", "sync", "rt"] }
+tokio = { version = "1.26.0", features = ["fs", "sync", "rt", "test-util", "macros"] }
