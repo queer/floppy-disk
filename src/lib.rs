@@ -3,7 +3,6 @@
 use std::ffi::OsString;
 use std::fmt::Debug;
 use std::io::Result;
-use std::ops::Deref;
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
@@ -23,21 +22,21 @@ pub mod prelude {
 }
 
 #[async_trait::async_trait]
-pub trait FloppyDisk<'a>: Debug {
+pub trait FloppyDisk: Debug {
     type Metadata: FloppyMetadata;
     type ReadDir: FloppyReadDir;
     type Permissions: FloppyPermissions;
-    type TempDir: FloppyTempDir;
+    // type TempDir: FloppyTempDir;
 
     async fn canonicalize<P: AsRef<Path> + Send>(&self, path: P) -> Result<PathBuf>;
 
-    async fn copy<P: AsRef<Path> + Send>(&mut self, from: P, to: P) -> Result<u64>;
+    async fn copy<P: AsRef<Path> + Send>(&self, from: P, to: P) -> Result<u64>;
 
-    async fn create_dir<P: AsRef<Path> + Send>(&mut self, path: P) -> Result<()>;
+    async fn create_dir<P: AsRef<Path> + Send>(&self, path: P) -> Result<()>;
 
-    async fn create_dir_all<P: AsRef<Path> + Send>(&mut self, path: P) -> Result<()>;
+    async fn create_dir_all<P: AsRef<Path> + Send>(&self, path: P) -> Result<()>;
 
-    async fn hard_link<P: AsRef<Path> + Send>(&mut self, src: P, dst: P) -> Result<()>;
+    async fn hard_link<P: AsRef<Path> + Send>(&self, src: P, dst: P) -> Result<()>;
 
     async fn metadata<P: AsRef<Path> + Send>(&self, path: P) -> Result<Self::Metadata>;
 
@@ -49,13 +48,13 @@ pub trait FloppyDisk<'a>: Debug {
 
     async fn read_to_string<P: AsRef<Path> + Send>(&self, path: P) -> Result<String>;
 
-    async fn remove_dir<P: AsRef<Path> + Send>(&mut self, path: P) -> Result<()>;
+    async fn remove_dir<P: AsRef<Path> + Send>(&self, path: P) -> Result<()>;
 
-    async fn remove_dir_all<P: AsRef<Path> + Send>(&mut self, path: P) -> Result<()>;
+    async fn remove_dir_all<P: AsRef<Path> + Send>(&self, path: P) -> Result<()>;
 
-    async fn remove_file<P: AsRef<Path> + Send>(&mut self, path: P) -> Result<()>;
+    async fn remove_file<P: AsRef<Path> + Send>(&self, path: P) -> Result<()>;
 
-    async fn rename<P: AsRef<Path> + Send>(&mut self, from: P, to: P) -> Result<()>;
+    async fn rename<P: AsRef<Path> + Send>(&self, from: P, to: P) -> Result<()>;
 
     async fn set_permissions<P: AsRef<Path> + Send>(
         &mut self,
@@ -63,21 +62,17 @@ pub trait FloppyDisk<'a>: Debug {
         perm: Self::Permissions,
     ) -> Result<()>;
 
-    async fn symlink<P: AsRef<Path> + Send>(&mut self, src: P, dst: P) -> Result<()>;
+    async fn symlink<P: AsRef<Path> + Send>(&self, src: P, dst: P) -> Result<()>;
 
     async fn symlink_metadata<P: AsRef<Path> + Send>(&self, path: P) -> Result<Self::Metadata>;
 
     async fn try_exists<P: AsRef<Path> + Send>(&self, path: P) -> Result<bool>;
 
     async fn write<P: AsRef<Path> + Send>(
-        &mut self,
+        &self,
         path: P,
         contents: impl AsRef<[u8]> + Send,
     ) -> Result<()>;
-
-    async fn create_tmp_dir(&mut self) -> Result<Self::TempDir>
-    where
-        'life0: 'a;
 }
 
 #[allow(clippy::len_without_is_empty)]
@@ -172,11 +167,8 @@ pub trait FloppyFileType: Debug {
     fn is_symlink(&self) -> bool;
 }
 
-// Safety: We actually do want the Drop bound here, because temp dirs need to
-// clean themselves up when they pass out of scope, ie. on drop.
-#[allow(drop_bounds)]
-pub trait FloppyTempDir:
-    Debug + Drop + AsRef<Path> + AsRef<PathBuf> + Send + Sync + Deref<Target = Path>
-{
-    fn path(&self) -> &Path;
-}
+// pub trait FloppyTempDir:
+//     Debug + AsRef<Path> + AsRef<PathBuf> + Send + Sync + Deref<Target = Path>
+// {
+//     fn path(&self) -> &Path;
+// }

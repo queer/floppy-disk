@@ -16,7 +16,6 @@ use tokio::sync::RwLockWriteGuard;
 use crate::FloppyDirEntry;
 use crate::FloppyDisk;
 use crate::FloppyReadDir;
-use crate::FloppyTempDir;
 use crate::FloppyUnixPermissions;
 use crate::{FloppyFile, FloppyFileType, FloppyMetadata, FloppyPermissions};
 
@@ -30,7 +29,7 @@ mod inode;
 #[derive(Derivative)]
 #[derivative(Debug)]
 pub struct MemFloppyDisk<'a> {
-    inode_serial: u64,
+    inode_serial: Arc<Mutex<u64>>,
     fs: tokio::sync::RwLock<MemTree>,
     #[derivative(Debug = "ignore")]
     _phantom: std::marker::PhantomData<&'a ()>,
@@ -46,7 +45,7 @@ impl MemFloppyDisk<'_> {
             fs
         };
         Self {
-            inode_serial: 1,
+            inode_serial: Arc::new(Mutex::new(1)),
             fs: tokio::sync::RwLock::new(fs),
             _phantom: std::marker::PhantomData,
         }
@@ -132,9 +131,11 @@ impl MemFloppyDisk<'_> {
         Ok(())
     }
 
-    fn get_next_inode_serial(&mut self) -> u64 {
-        self.inode_serial += 1;
-        self.inode_serial
+    async fn get_next_inode_serial(&self) -> u64 {
+        let mut serial = self.inode_serial.lock().await;
+        let next = *serial;
+        *serial += 1;
+        next
     }
 
     fn insert_inode<P: Into<PathBuf>>(
@@ -150,11 +151,10 @@ impl MemFloppyDisk<'_> {
 }
 
 #[async_trait::async_trait]
-impl<'a> FloppyDisk<'a> for MemFloppyDisk<'a> {
+impl<'a> FloppyDisk for MemFloppyDisk<'a> {
     type Metadata = MemMetadata;
     type ReadDir = MemReadDir;
     type Permissions = MemPermissions;
-    type TempDir = MemTempDir<'a>;
 
     async fn canonicalize<P: AsRef<Path> + Send>(&self, path: P) -> Result<PathBuf> {
         // Resolve all .. and symlinks
@@ -202,13 +202,13 @@ impl<'a> FloppyDisk<'a> for MemFloppyDisk<'a> {
         Ok(out)
     }
 
-    async fn copy<P: AsRef<Path> + Send>(&mut self, from: P, to: P) -> Result<u64> {
+    async fn copy<P: AsRef<Path> + Send>(&self, from: P, to: P) -> Result<u64> {
         let from = from.as_ref();
         let to = to.as_ref();
         println!("make sure paths exist");
         self.make_sure_path_exists(from).await?;
 
-        let next_inode = self.get_next_inode_serial();
+        let next_inode = self.get_next_inode_serial().await;
         let mut fs = self.fs.write().await;
         let to_inode = {
             println!("acquire write lock");
@@ -234,11 +234,11 @@ impl<'a> FloppyDisk<'a> for MemFloppyDisk<'a> {
         Ok(out)
     }
 
-    async fn create_dir<P: AsRef<Path> + Send>(&mut self, path: P) -> Result<()> {
+    async fn create_dir<P: AsRef<Path> + Send>(&self, path: P) -> Result<()> {
         let path = path.as_ref();
         self.make_sure_path_doesnt_exist(path).await?;
 
-        let next_inode = self.get_next_inode_serial();
+        let next_inode = self.get_next_inode_serial().await;
 
         let inode = Inode::new_dir(next_inode, path);
 
@@ -248,7 +248,7 @@ impl<'a> FloppyDisk<'a> for MemFloppyDisk<'a> {
         Ok(())
     }
 
-    async fn create_dir_all<P: AsRef<Path> + Send>(&mut self, path: P) -> Result<()> {
+    async fn create_dir_all<P: AsRef<Path> + Send>(&self, path: P) -> Result<()> {
         let path = path.as_ref();
 
         // While parents don't exist, create them
@@ -260,7 +260,7 @@ impl<'a> FloppyDisk<'a> for MemFloppyDisk<'a> {
         self.create_dir(path).await
     }
 
-    async fn hard_link<P: AsRef<Path> + Send>(&mut self, _src: P, _dst: P) -> Result<()> {
+    async fn hard_link<P: AsRef<Path> + Send>(&self, _src: P, _dst: P) -> Result<()> {
         unimplemented!("hard links are not yet supported")
     }
 
@@ -341,7 +341,7 @@ impl<'a> FloppyDisk<'a> for MemFloppyDisk<'a> {
         Ok(out)
     }
 
-    async fn remove_dir<P: AsRef<Path> + Send>(&mut self, path: P) -> Result<()> {
+    async fn remove_dir<P: AsRef<Path> + Send>(&self, path: P) -> Result<()> {
         let path = path.as_ref();
         self.make_sure_path_exists(path).await?;
 
@@ -358,7 +358,7 @@ impl<'a> FloppyDisk<'a> for MemFloppyDisk<'a> {
         }
     }
 
-    async fn remove_dir_all<P: AsRef<Path> + Send>(&mut self, path: P) -> Result<()> {
+    async fn remove_dir_all<P: AsRef<Path> + Send>(&self, path: P) -> Result<()> {
         // Recursively remove all children in dir, depth-first
         // Finally, remove dir
         let path = path.as_ref();
@@ -380,7 +380,7 @@ impl<'a> FloppyDisk<'a> for MemFloppyDisk<'a> {
         Ok(())
     }
 
-    async fn remove_file<P: AsRef<Path> + Send>(&mut self, path: P) -> Result<()> {
+    async fn remove_file<P: AsRef<Path> + Send>(&self, path: P) -> Result<()> {
         let path = path.as_ref();
         self.make_sure_path_exists(path).await?;
 
@@ -390,13 +390,13 @@ impl<'a> FloppyDisk<'a> for MemFloppyDisk<'a> {
         Ok(())
     }
 
-    async fn rename<P: AsRef<Path> + Send>(&mut self, from: P, to: P) -> Result<()> {
+    async fn rename<P: AsRef<Path> + Send>(&self, from: P, to: P) -> Result<()> {
         let from = from.as_ref();
         let to = to.as_ref();
         self.make_sure_path_exists(from).await?;
         self.make_sure_path_doesnt_exist(to).await?;
 
-        let next_inode = self.get_next_inode_serial();
+        let next_inode = self.get_next_inode_serial().await;
         let mut fs = self.fs.write().await;
         let old_inode = fs.remove(from).unwrap();
         let mut new_inode = old_inode.read().await.clone();
@@ -423,13 +423,13 @@ impl<'a> FloppyDisk<'a> for MemFloppyDisk<'a> {
         Ok(())
     }
 
-    async fn symlink<P: AsRef<Path> + Send>(&mut self, src: P, dst: P) -> Result<()> {
+    async fn symlink<P: AsRef<Path> + Send>(&self, src: P, dst: P) -> Result<()> {
         let src = src.as_ref();
         let dst = dst.as_ref();
         self.make_sure_path_exists(src).await?;
         self.make_sure_path_doesnt_exist(dst).await?;
 
-        let next_inode = self.get_next_inode_serial();
+        let next_inode = self.get_next_inode_serial().await;
 
         let mut fs = self.fs.write().await;
         self.insert_inode(&mut fs, dst, Inode::new_symlink(next_inode, dst, src))?;
@@ -504,27 +504,20 @@ impl<'a> FloppyDisk<'a> for MemFloppyDisk<'a> {
     }
 
     async fn write<P: AsRef<Path> + Send>(
-        &mut self,
+        &self,
         path: P,
         contents: impl AsRef<[u8]> + Send,
     ) -> Result<()> {
         let path = path.as_ref();
         self.make_sure_parent_exists(path).await?;
 
-        let next_inode = self.get_next_inode_serial();
+        let next_inode = self.get_next_inode_serial().await;
 
         let mut fs = self.fs.write().await;
         let inode = Inode::new_file(next_inode, path, contents.as_ref().to_vec());
         self.insert_inode(&mut fs, path, inode)?;
 
         Ok(())
-    }
-
-    async fn create_tmp_dir(&mut self) -> Result<Self::TempDir>
-    where
-        'life0: 'a,
-    {
-        MemTempDir::new(Arc::new(Mutex::new(self))).await
     }
 }
 
@@ -864,62 +857,6 @@ impl FloppyDirEntry for MemDirEntry {
     }
 }
 
-#[derive(Debug)]
-pub struct MemTempDir<'a> {
-    path: PathBuf,
-    fs: Arc<Mutex<&'a mut MemFloppyDisk<'a>>>,
-}
-
-impl<'a> MemTempDir<'a> {
-    async fn new(fs: Arc<Mutex<&'a mut MemFloppyDisk<'a>>>) -> Result<MemTempDir> {
-        let mut path = std::env::temp_dir();
-        path.push(format!("peckish-workdir-{}", rand::random::<u64>()));
-        {
-            let mut fs = fs.lock().await;
-            fs.create_dir_all(&path).await?;
-        }
-
-        Ok(Self { path, fs })
-    }
-}
-
-impl FloppyTempDir for MemTempDir<'_> {
-    fn path(&self) -> &Path {
-        &self.path
-    }
-}
-
-impl Drop for MemTempDir<'_> {
-    fn drop(&mut self) {
-        if self.path.exists() {
-            run_here(async {
-                let mut fs = self.fs.lock().await;
-                fs.remove_dir_all(&self.path).await.unwrap();
-            });
-        }
-    }
-}
-
-impl AsRef<Path> for MemTempDir<'_> {
-    fn as_ref(&self) -> &Path {
-        &self.path
-    }
-}
-
-impl AsRef<PathBuf> for MemTempDir<'_> {
-    fn as_ref(&self) -> &PathBuf {
-        &self.path
-    }
-}
-
-impl std::ops::Deref for MemTempDir<'_> {
-    type Target = Path;
-
-    fn deref(&self) -> &Self::Target {
-        &self.path
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -928,7 +865,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_mem_floppy_disk() -> Result<()> {
-        let mut fs = MemFloppyDisk::new();
+        let fs = MemFloppyDisk::new();
         fs.write("/test.txt", "asdf").await?;
         assert_eq!("asdf", fs.read_to_string("/test.txt").await?);
 
@@ -957,7 +894,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_copy() -> Result<()> {
-        let mut fs = MemFloppyDisk::new();
+        let fs = MemFloppyDisk::new();
         fs.write("/test.txt", "asdf").await?;
         fs.copy("/test.txt", "/test2.txt").await?;
         assert_eq!("asdf", fs.read_to_string("/test2.txt").await?);
@@ -967,7 +904,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_create_dir() -> Result<()> {
-        let mut fs = MemFloppyDisk::new();
+        let fs = MemFloppyDisk::new();
         fs.create_dir("/test").await?;
         let metadata = fs.metadata("/test").await?;
         assert!(metadata.is_dir().await);
@@ -977,7 +914,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_create_dir_all() -> Result<()> {
-        let mut fs = MemFloppyDisk::new();
+        let fs = MemFloppyDisk::new();
         fs.create_dir_all("/test/a/b/c").await?;
         let metadata = fs.metadata("/test/a/b/c").await?;
         assert!(metadata.is_dir().await);
@@ -997,7 +934,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_metadata() -> Result<()> {
-        let mut fs = MemFloppyDisk::new();
+        let fs = MemFloppyDisk::new();
         fs.write("/test.txt", "asdf").await?;
         let metadata = fs.metadata("/test.txt").await?;
         assert!(metadata.is_file().await);
@@ -1008,7 +945,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_read() -> Result<()> {
-        let mut fs = MemFloppyDisk::new();
+        let fs = MemFloppyDisk::new();
         fs.write("/test.txt", "asdf").await?;
         let buf = fs.read("/test.txt").await?;
         assert_eq!(b"asdf", buf.as_slice());
@@ -1018,7 +955,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_read_dir() -> Result<()> {
-        let mut fs = MemFloppyDisk::new();
+        let fs = MemFloppyDisk::new();
         fs.write("/test.txt", "asdf").await?;
         fs.create_dir("/test").await?;
         let mut entries = fs.read_dir("/").await?;
@@ -1041,7 +978,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_read_link() -> Result<()> {
-        let mut fs = MemFloppyDisk::new();
+        let fs = MemFloppyDisk::new();
         fs.write("/test.txt", "asdf").await?;
         fs.symlink("/test.txt", "/test2.txt").await?;
         let s = fs.read_link("/test2.txt").await?;
@@ -1052,7 +989,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_read_to_string() -> Result<()> {
-        let mut fs = MemFloppyDisk::new();
+        let fs = MemFloppyDisk::new();
         fs.write("/test.txt", "asdf").await?;
         let s = fs.read_to_string("/test.txt").await?;
         assert_eq!("asdf", s);
@@ -1062,7 +999,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_remove_dir() -> Result<()> {
-        let mut fs = MemFloppyDisk::new();
+        let fs = MemFloppyDisk::new();
         fs.create_dir("/test").await?;
         fs.remove_dir("/test").await?;
         assert!(fs.metadata("/test").await.is_err());
@@ -1072,7 +1009,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_remove_dir_all() -> Result<()> {
-        let mut fs = MemFloppyDisk::new();
+        let fs = MemFloppyDisk::new();
         fs.create_dir_all("/test/a/b/c").await?;
         fs.remove_dir_all("/test").await?;
         assert!(fs.metadata("/test").await.is_err());
@@ -1085,7 +1022,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_remove_file() -> Result<()> {
-        let mut fs = MemFloppyDisk::new();
+        let fs = MemFloppyDisk::new();
         fs.write("/test.txt", "asdf").await?;
         fs.remove_file("/test.txt").await?;
         assert!(fs.metadata("/test.txt").await.is_err());
@@ -1095,7 +1032,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_rename() -> Result<()> {
-        let mut fs = MemFloppyDisk::new();
+        let fs = MemFloppyDisk::new();
         fs.write("/test.txt", "asdf").await?;
         fs.rename("/test.txt", "/test2.txt").await?;
         assert!(fs.metadata("/test.txt").await.is_err());
@@ -1118,7 +1055,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_symlink_metadata() -> Result<()> {
-        let mut fs = MemFloppyDisk::new();
+        let fs = MemFloppyDisk::new();
         fs.write("/test.txt", "asdf").await?;
         fs.symlink("/test.txt", "/test2.txt").await?;
         let metadata = fs.symlink_metadata("/test2.txt").await?;
@@ -1130,7 +1067,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_symlink() -> Result<()> {
-        let mut fs = MemFloppyDisk::new();
+        let fs = MemFloppyDisk::new();
         fs.write("/test.txt", "asdf").await?;
         fs.symlink("/test.txt", "/test2.txt").await?;
         let s = fs.read_link("/test2.txt").await?;
@@ -1141,7 +1078,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_write() -> Result<()> {
-        let mut fs = MemFloppyDisk::new();
+        let fs = MemFloppyDisk::new();
         fs.write("/test.txt", "asdf").await?;
         assert_eq!("asdf", fs.read_to_string("/test.txt").await?);
 
