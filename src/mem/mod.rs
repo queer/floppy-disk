@@ -17,6 +17,7 @@ use crate::FloppyDirEntry;
 use crate::FloppyDisk;
 use crate::FloppyReadDir;
 use crate::FloppyTempDir;
+use crate::FloppyUnixPermissions;
 use crate::{FloppyFile, FloppyFileType, FloppyMetadata, FloppyPermissions};
 
 use self::inode::{Inode, InodeType};
@@ -702,6 +703,20 @@ impl FloppyPermissions for MemPermissions {
     }
 }
 
+impl FloppyUnixPermissions for MemPermissions {
+    fn mode(&self) -> u32 {
+        self.mode
+    }
+
+    fn set_mode(&mut self, mode: u32) {
+        self.mode = mode;
+    }
+
+    fn from_mode(mode: u32) -> Self {
+        Self { mode }
+    }
+}
+
 #[derive(Debug)]
 pub struct MemMetadata {
     inode: Arc<TokioRwLock<Inode>>,
@@ -1064,6 +1079,71 @@ mod tests {
         assert!(fs.metadata("/test/a").await.is_err());
         assert!(fs.metadata("/test/a/b").await.is_err());
         assert!(fs.metadata("/test/a/b/c").await.is_err());
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_remove_file() -> Result<()> {
+        let mut fs = MemFloppyDisk::new();
+        fs.write("/test.txt", "asdf").await?;
+        fs.remove_file("/test.txt").await?;
+        assert!(fs.metadata("/test.txt").await.is_err());
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_rename() -> Result<()> {
+        let mut fs = MemFloppyDisk::new();
+        fs.write("/test.txt", "asdf").await?;
+        fs.rename("/test.txt", "/test2.txt").await?;
+        assert!(fs.metadata("/test.txt").await.is_err());
+        assert_eq!("asdf", fs.read_to_string("/test2.txt").await?);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_set_permissions() -> Result<()> {
+        let mut fs = MemFloppyDisk::new();
+        fs.write("/test.txt", "asdf").await?;
+        fs.set_permissions("/test.txt", MemPermissions::from_mode(0o777))
+            .await?;
+        let metadata = fs.metadata("/test.txt").await?;
+        assert_eq!(0o777, metadata.permissions().await.mode());
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_symlink_metadata() -> Result<()> {
+        let mut fs = MemFloppyDisk::new();
+        fs.write("/test.txt", "asdf").await?;
+        fs.symlink("/test.txt", "/test2.txt").await?;
+        let metadata = fs.symlink_metadata("/test2.txt").await?;
+        assert!(metadata.is_file().await);
+        assert_eq!(4, metadata.len().await);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_symlink() -> Result<()> {
+        let mut fs = MemFloppyDisk::new();
+        fs.write("/test.txt", "asdf").await?;
+        fs.symlink("/test.txt", "/test2.txt").await?;
+        let s = fs.read_link("/test2.txt").await?;
+        assert_eq!(PathBuf::from("/test.txt"), s);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_write() -> Result<()> {
+        let mut fs = MemFloppyDisk::new();
+        fs.write("/test.txt", "asdf").await?;
+        assert_eq!("asdf", fs.read_to_string("/test.txt").await?);
 
         Ok(())
     }
