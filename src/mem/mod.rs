@@ -969,4 +969,25 @@ mod tests {
 
         Ok(())
     }
+
+    // #[tokio::test]
+    // async fn test_hard_link() -> Result<()> {
+    //     let mut fs = MemFloppyDisk::new();
+    //     fs.write("/test.txt", "asdf").await?;
+    //     fs.hard_link("/test.txt", "/test2.txt").await?;
+    //     assert_eq!("asdf", fs.read_to_string("/test2.txt").await?);
+
+    //     Ok(())
+    // }
+
+    #[tokio::test]
+    async fn test_metadata() -> Result<()> {
+        let mut fs = MemFloppyDisk::new();
+        fs.write("/test.txt", "asdf").await?;
+        let metadata = fs.metadata("/test.txt").await?;
+        assert!(metadata.is_file().await);
+        assert_eq!(4, metadata.len().await);
+
+        Ok(())
+    }
 }
