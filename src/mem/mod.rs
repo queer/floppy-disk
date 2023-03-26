@@ -990,4 +990,14 @@ mod tests {
 
         Ok(())
     }
+
+    #[tokio::test]
+    async fn test_read() -> Result<()> {
+        let mut fs = MemFloppyDisk::new();
+        fs.write("/test.txt", "asdf").await?;
+        let buf = fs.read("/test.txt").await?;
+        assert_eq!(b"asdf", buf.as_slice());
+
+        Ok(())
+    }
 }
