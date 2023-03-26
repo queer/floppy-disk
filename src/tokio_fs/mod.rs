@@ -19,10 +19,11 @@ impl TokioFloppyDisk {
 }
 
 #[async_trait::async_trait]
-impl FloppyDisk for TokioFloppyDisk {
+impl<'a> FloppyDisk<'a> for TokioFloppyDisk {
     type Metadata = TokioMetadata;
     type ReadDir = TokioReadDir;
     type Permissions = TokioPermissions;
+    type TempDir = TokioTempDir;
 
     async fn canonicalize<P: AsRef<Path> + Send>(&self, path: P) -> Result<PathBuf> {
         tokio::fs::canonicalize(path).await
@@ -106,6 +107,10 @@ impl FloppyDisk for TokioFloppyDisk {
         contents: impl AsRef<[u8]> + Send,
     ) -> Result<()> {
         tokio::fs::write(path, contents).await
+    }
+
+    async fn create_tmp_dir(&mut self) -> Result<Self::TempDir> {
+        TokioTempDir::new().await
     }
 }
 
@@ -384,5 +389,54 @@ impl AsyncWrite for TokioFile {
 
     fn poll_shutdown(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<()>> {
         Pin::new(&mut self.get_mut().0).poll_shutdown(cx)
+    }
+}
+
+#[derive(Debug)]
+pub struct TokioTempDir {
+    path: PathBuf,
+}
+
+impl TokioTempDir {
+    async fn new() -> Result<Self> {
+        let mut path = std::env::temp_dir();
+        path.push(format!("peckish-workdir-{}", rand::random::<u64>()));
+        tokio::fs::create_dir_all(&path).await?;
+
+        Ok(Self { path })
+    }
+}
+
+impl FloppyTempDir for TokioTempDir {
+    fn path(&self) -> &Path {
+        &self.path
+    }
+}
+
+impl Drop for TokioTempDir {
+    fn drop(&mut self) {
+        if self.path.exists() {
+            std::fs::remove_dir_all(&self.path).unwrap();
+        }
+    }
+}
+
+impl AsRef<Path> for TokioTempDir {
+    fn as_ref(&self) -> &Path {
+        &self.path
+    }
+}
+
+impl AsRef<PathBuf> for TokioTempDir {
+    fn as_ref(&self) -> &PathBuf {
+        &self.path
+    }
+}
+
+impl std::ops::Deref for TokioTempDir {
+    type Target = Path;
+
+    fn deref(&self) -> &Self::Target {
+        &self.path
     }
 }

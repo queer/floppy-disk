@@ -10,10 +10,12 @@ use std::time::SystemTime;
 use derivative::Derivative;
 use futures::Future;
 use tokio::io::{AsyncRead, AsyncSeek, AsyncWrite};
+use tokio::sync::Mutex;
 
 use crate::FloppyDirEntry;
 use crate::FloppyDisk;
 use crate::FloppyReadDir;
+use crate::FloppyTempDir;
 use crate::{FloppyFile, FloppyFileType, FloppyMetadata, FloppyPermissions};
 
 use self::inode::{Inode, InodeType};
@@ -24,22 +26,23 @@ mod inode;
 
 #[derive(Derivative)]
 #[derivative(Debug)]
-pub struct MemFloppyDisk {
+pub struct MemFloppyDisk<'a> {
     inode_serial: u64,
     fs: tokio::sync::RwLock<BTreeMap<PathBuf, Arc<TokioRwLock<Inode>>>>,
+    #[derivative(Debug = "ignore")]
+    _phantom: std::marker::PhantomData<&'a ()>,
 }
 
-impl MemFloppyDisk {
+impl MemFloppyDisk<'_> {
     #[allow(clippy::new_without_default)]
     pub fn new() -> Self {
         Self {
             inode_serial: 0,
             fs: tokio::sync::RwLock::new(BTreeMap::new()),
+            _phantom: std::marker::PhantomData,
         }
     }
-}
 
-impl MemFloppyDisk {
     async fn find_lowest_non_existing_parent(&self, input: &Path) -> Result<Option<PathBuf>> {
         let mut path = PathBuf::new();
         let mut found = false;
@@ -130,12 +133,11 @@ impl MemFloppyDisk {
 }
 
 #[async_trait::async_trait]
-impl FloppyDisk for MemFloppyDisk {
+impl<'a> FloppyDisk<'a> for MemFloppyDisk<'a> {
     type Metadata = MemMetadata;
-
     type ReadDir = MemReadDir;
-
     type Permissions = MemPermissions;
+    type TempDir = MemTempDir<'a>;
 
     async fn canonicalize<P: AsRef<Path> + Send>(&self, path: P) -> Result<PathBuf> {
         // Resolve all .. and symlinks
@@ -487,6 +489,13 @@ impl FloppyDisk for MemFloppyDisk {
 
         Ok(())
     }
+
+    async fn create_tmp_dir(&mut self) -> Result<Self::TempDir>
+    where
+        'life0: 'a,
+    {
+        MemTempDir::new(Arc::new(Mutex::new(self))).await
+    }
 }
 
 #[derive(Derivative)]
@@ -808,5 +817,61 @@ impl FloppyDirEntry for MemDirEntry {
             let inode = self.inode.read().await;
             *inode.serial()
         })
+    }
+}
+
+#[derive(Debug)]
+pub struct MemTempDir<'a> {
+    path: PathBuf,
+    fs: Arc<Mutex<&'a mut MemFloppyDisk<'a>>>,
+}
+
+impl<'a> MemTempDir<'a> {
+    async fn new(fs: Arc<Mutex<&'a mut MemFloppyDisk<'a>>>) -> Result<MemTempDir> {
+        let mut path = std::env::temp_dir();
+        path.push(format!("peckish-workdir-{}", rand::random::<u64>()));
+        {
+            let mut fs = fs.lock().await;
+            fs.create_dir_all(&path).await?;
+        }
+
+        Ok(Self { path, fs })
+    }
+}
+
+impl FloppyTempDir for MemTempDir<'_> {
+    fn path(&self) -> &Path {
+        &self.path
+    }
+}
+
+impl Drop for MemTempDir<'_> {
+    fn drop(&mut self) {
+        if self.path.exists() {
+            run_here(async {
+                let mut fs = self.fs.lock().await;
+                fs.remove_dir_all(&self.path).await.unwrap();
+            });
+        }
+    }
+}
+
+impl AsRef<Path> for MemTempDir<'_> {
+    fn as_ref(&self) -> &Path {
+        &self.path
+    }
+}
+
+impl AsRef<PathBuf> for MemTempDir<'_> {
+    fn as_ref(&self) -> &PathBuf {
+        &self.path
+    }
+}
+
+impl std::ops::Deref for MemTempDir<'_> {
+    type Target = Path;
+
+    fn deref(&self) -> &Self::Target {
+        &self.path
     }
 }

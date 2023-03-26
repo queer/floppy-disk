@@ -3,6 +3,7 @@
 use std::ffi::OsString;
 use std::fmt::Debug;
 use std::io::Result;
+use std::ops::Deref;
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
@@ -22,10 +23,11 @@ pub mod prelude {
 }
 
 #[async_trait::async_trait]
-pub trait FloppyDisk: Debug {
+pub trait FloppyDisk<'a>: Debug {
     type Metadata: FloppyMetadata;
     type ReadDir: FloppyReadDir;
     type Permissions: FloppyPermissions;
+    type TempDir: FloppyTempDir;
 
     async fn canonicalize<P: AsRef<Path> + Send>(&self, path: P) -> Result<PathBuf>;
 
@@ -72,6 +74,10 @@ pub trait FloppyDisk: Debug {
         path: P,
         contents: impl AsRef<[u8]> + Send,
     ) -> Result<()>;
+
+    async fn create_tmp_dir(&mut self) -> Result<Self::TempDir>
+    where
+        'life0: 'a;
 }
 
 #[allow(clippy::len_without_is_empty)]
@@ -164,4 +170,13 @@ pub trait FloppyFileType: Debug {
     fn is_dir(&self) -> bool;
     fn is_file(&self) -> bool;
     fn is_symlink(&self) -> bool;
+}
+
+// Safety: We actually do want the Drop bound here, because temp dirs need to
+// clean themselves up when they pass out of scope, ie. on drop.
+#[allow(drop_bounds)]
+pub trait FloppyTempDir:
+    Debug + Drop + AsRef<Path> + AsRef<PathBuf> + Send + Sync + Deref<Target = Path>
+{
+    fn path(&self) -> &Path;
 }
