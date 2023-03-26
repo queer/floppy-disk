@@ -579,11 +579,11 @@ impl FloppyFile for MemFile {
 }
 
 fn run_here<F: Future>(fut: F) -> F::Output {
-    let rt = tokio::runtime::Builder::new_current_thread()
-        .build()
-        .unwrap();
-
-    rt.block_on(fut)
+    // TODO: This is evil
+    // Adapted from https://stackoverflow.com/questions/66035290
+    let handle = tokio::runtime::Handle::try_current().unwrap();
+    let _guard = handle.enter();
+    futures::executor::block_on(fut)
 }
 
 impl AsyncSeek for MemFile {
@@ -997,6 +997,29 @@ mod tests {
         fs.write("/test.txt", "asdf").await?;
         let buf = fs.read("/test.txt").await?;
         assert_eq!(b"asdf", buf.as_slice());
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_read_dir() -> Result<()> {
+        let mut fs = MemFloppyDisk::new();
+        fs.write("/test.txt", "asdf").await?;
+        fs.create_dir("/test").await?;
+        let mut entries = fs.read_dir("/").await?;
+        let entry = entries.next_entry().await?;
+        assert!(entry.is_some());
+        let entry = entry.unwrap();
+        assert_eq!("test", entry.file_name().to_str().unwrap());
+        assert!(entry.file_type().await?.is_dir());
+
+        let entry = entries.next_entry().await?;
+        assert!(entry.is_some());
+        let entry = entry.unwrap();
+        assert_eq!("test.txt", entry.file_name().to_str().unwrap());
+        assert!(entry.file_type().await?.is_file());
+
+        assert!(entries.next_entry().await?.is_none());
 
         Ok(())
     }
