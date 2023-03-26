@@ -29,13 +29,13 @@ pub trait FloppyDisk: Debug {
 
     async fn canonicalize<P: AsRef<Path> + Send>(&self, path: P) -> Result<PathBuf>;
 
-    async fn copy<P: AsRef<Path> + Send>(&self, from: P, to: P) -> Result<u64>;
+    async fn copy<P: AsRef<Path> + Send>(&mut self, from: P, to: P) -> Result<u64>;
 
-    async fn create_dir<P: AsRef<Path> + Send>(&self, path: P) -> Result<()>;
+    async fn create_dir<P: AsRef<Path> + Send>(&mut self, path: P) -> Result<()>;
 
-    async fn create_dir_all<P: AsRef<Path> + Send>(&self, path: P) -> Result<()>;
+    async fn create_dir_all<P: AsRef<Path> + Send>(&mut self, path: P) -> Result<()>;
 
-    async fn hard_link<P: AsRef<Path> + Send>(&self, src: P, dst: P) -> Result<()>;
+    async fn hard_link<P: AsRef<Path> + Send>(&mut self, src: P, dst: P) -> Result<()>;
 
     async fn metadata<P: AsRef<Path> + Send>(&self, path: P) -> Result<Self::Metadata>;
 
@@ -47,28 +47,28 @@ pub trait FloppyDisk: Debug {
 
     async fn read_to_string<P: AsRef<Path> + Send>(&self, path: P) -> Result<String>;
 
-    async fn remove_dir<P: AsRef<Path> + Send>(&self, path: P) -> Result<()>;
+    async fn remove_dir<P: AsRef<Path> + Send>(&mut self, path: P) -> Result<()>;
 
-    async fn remove_dir_all<P: AsRef<Path> + Send>(&self, path: P) -> Result<()>;
+    async fn remove_dir_all<P: AsRef<Path> + Send>(&mut self, path: P) -> Result<()>;
 
-    async fn remove_file<P: AsRef<Path> + Send>(&self, path: P) -> Result<()>;
+    async fn remove_file<P: AsRef<Path> + Send>(&mut self, path: P) -> Result<()>;
 
-    async fn rename<P: AsRef<Path> + Send>(&self, from: P, to: P) -> Result<()>;
+    async fn rename<P: AsRef<Path> + Send>(&mut self, from: P, to: P) -> Result<()>;
 
     async fn set_permissions<P: AsRef<Path> + Send>(
-        &self,
+        &mut self,
         path: P,
         perm: Self::Permissions,
     ) -> Result<()>;
 
-    async fn symlink<P: AsRef<Path> + Send>(&self, src: P, dst: P) -> Result<()>;
+    async fn symlink<P: AsRef<Path> + Send>(&mut self, src: P, dst: P) -> Result<()>;
 
     async fn symlink_metadata<P: AsRef<Path> + Send>(&self, path: P) -> Result<Self::Metadata>;
 
     async fn try_exists<P: AsRef<Path> + Send>(&self, path: P) -> Result<bool>;
 
     async fn write<P: AsRef<Path> + Send>(
-        &self,
+        &mut self,
         path: P,
         contents: impl AsRef<[u8]> + Send,
     ) -> Result<()>;

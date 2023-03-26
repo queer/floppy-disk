@@ -28,19 +28,19 @@ impl FloppyDisk for TokioFloppyDisk {
         tokio::fs::canonicalize(path).await
     }
 
-    async fn copy<P: AsRef<Path> + Send>(&self, from: P, to: P) -> Result<u64> {
+    async fn copy<P: AsRef<Path> + Send>(&mut self, from: P, to: P) -> Result<u64> {
         tokio::fs::copy(from, to).await
     }
 
-    async fn create_dir<P: AsRef<Path> + Send>(&self, path: P) -> Result<()> {
+    async fn create_dir<P: AsRef<Path> + Send>(&mut self, path: P) -> Result<()> {
         tokio::fs::create_dir(path).await
     }
 
-    async fn create_dir_all<P: AsRef<Path> + Send>(&self, path: P) -> Result<()> {
+    async fn create_dir_all<P: AsRef<Path> + Send>(&mut self, path: P) -> Result<()> {
         tokio::fs::create_dir_all(path).await
     }
 
-    async fn hard_link<P: AsRef<Path> + Send>(&self, src: P, dst: P) -> Result<()> {
+    async fn hard_link<P: AsRef<Path> + Send>(&mut self, src: P, dst: P) -> Result<()> {
         tokio::fs::hard_link(src, dst).await
     }
 
@@ -64,31 +64,31 @@ impl FloppyDisk for TokioFloppyDisk {
         tokio::fs::read_to_string(path).await
     }
 
-    async fn remove_dir<P: AsRef<Path> + Send>(&self, path: P) -> Result<()> {
+    async fn remove_dir<P: AsRef<Path> + Send>(&mut self, path: P) -> Result<()> {
         tokio::fs::remove_dir(path).await
     }
 
-    async fn remove_dir_all<P: AsRef<Path> + Send>(&self, path: P) -> Result<()> {
+    async fn remove_dir_all<P: AsRef<Path> + Send>(&mut self, path: P) -> Result<()> {
         tokio::fs::remove_dir_all(path).await
     }
 
-    async fn remove_file<P: AsRef<Path> + Send>(&self, path: P) -> Result<()> {
+    async fn remove_file<P: AsRef<Path> + Send>(&mut self, path: P) -> Result<()> {
         tokio::fs::remove_file(path).await
     }
 
-    async fn rename<P: AsRef<Path> + Send>(&self, from: P, to: P) -> Result<()> {
+    async fn rename<P: AsRef<Path> + Send>(&mut self, from: P, to: P) -> Result<()> {
         tokio::fs::rename(from, to).await
     }
 
     async fn set_permissions<P: AsRef<Path> + Send>(
-        &self,
+        &mut self,
         path: P,
         perm: Self::Permissions,
     ) -> Result<()> {
         tokio::fs::set_permissions(path, perm.0).await
     }
 
-    async fn symlink<P: AsRef<Path> + Send>(&self, src: P, dst: P) -> Result<()> {
+    async fn symlink<P: AsRef<Path> + Send>(&mut self, src: P, dst: P) -> Result<()> {
         tokio::fs::symlink(src, dst).await
     }
 
@@ -101,7 +101,7 @@ impl FloppyDisk for TokioFloppyDisk {
     }
 
     async fn write<P: AsRef<Path> + Send>(
-        &self,
+        &mut self,
         path: P,
         contents: impl AsRef<[u8]> + Send,
     ) -> Result<()> {

@@ -5,7 +5,7 @@ use derive_getters::Getters;
 
 use super::MemPermissions;
 
-#[derive(Getters, Debug, PartialEq, Eq)]
+#[derive(Getters, Debug, PartialEq, Eq, Clone)]
 pub(crate) struct Inode {
     serial: u64,
     kind: InodeType,
@@ -18,6 +18,7 @@ pub(crate) struct Inode {
     mtime: SystemTime,
     ctime: SystemTime,
     buffer: Vec<u8>,
+    symlink_target: Option<PathBuf>,
 }
 
 impl Ord for Inode {
@@ -33,6 +34,10 @@ impl PartialOrd for Inode {
 }
 
 impl Inode {
+    pub fn set_serial(&mut self, serial: u64) {
+        self.serial = serial;
+    }
+
     pub fn len(&self) -> u64 {
         self.buffer.len() as u64
     }
@@ -49,7 +54,6 @@ impl Inode {
         self.mode.clone()
     }
 
-    #[allow(unused)]
     pub fn buffer_view(&self) -> &[u8] {
         &self.buffer
     }
@@ -57,9 +61,60 @@ impl Inode {
     pub fn buffer_mut(&mut self) -> &mut Vec<u8> {
         &mut self.buffer
     }
+
+    pub fn new_dir(next_inode: u64) -> Self {
+        Self {
+            serial: next_inode,
+            kind: InodeType::Dir,
+            mode: MemPermissions { mode: 0o755 },
+            path: PathBuf::new(),
+            uid: 0,
+            gid: 0,
+            size: 0,
+            atime: SystemTime::now(),
+            mtime: SystemTime::now(),
+            ctime: SystemTime::now(),
+            buffer: Vec::new(),
+            symlink_target: None,
+        }
+    }
+
+    pub fn new_file<V: Into<Vec<u8>>>(next_inode: u64, data: V) -> Self {
+        Self {
+            serial: next_inode,
+            kind: InodeType::File,
+            mode: MemPermissions { mode: 0o644 },
+            path: PathBuf::new(),
+            uid: 0,
+            gid: 0,
+            size: 0,
+            atime: SystemTime::now(),
+            mtime: SystemTime::now(),
+            ctime: SystemTime::now(),
+            buffer: data.into(),
+            symlink_target: None,
+        }
+    }
+
+    pub fn new_symlink<P: Into<PathBuf>>(next_inode: u64, target: P) -> Self {
+        Self {
+            serial: next_inode,
+            kind: InodeType::Symlink,
+            mode: MemPermissions { mode: 0o777 },
+            path: PathBuf::new(),
+            uid: 0,
+            gid: 0,
+            size: 0,
+            atime: SystemTime::now(),
+            mtime: SystemTime::now(),
+            ctime: SystemTime::now(),
+            buffer: Vec::new(),
+            symlink_target: Some(target.into()),
+        }
+    }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Copy)]
 pub(crate) enum InodeType {
     File,
     Dir,
