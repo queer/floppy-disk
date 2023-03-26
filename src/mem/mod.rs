@@ -1023,4 +1023,25 @@ mod tests {
 
         Ok(())
     }
+
+    #[tokio::test]
+    async fn test_read_link() -> Result<()> {
+        let mut fs = MemFloppyDisk::new();
+        fs.write("/test.txt", "asdf").await?;
+        fs.symlink("/test.txt", "/test2.txt").await?;
+        let s = fs.read_link("/test2.txt").await?;
+        assert_eq!(PathBuf::from("/test.txt"), s);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_read_to_string() -> Result<()> {
+        let mut fs = MemFloppyDisk::new();
+        fs.write("/test.txt", "asdf").await?;
+        let s = fs.read_to_string("/test.txt").await?;
+        assert_eq!("asdf", s);
+
+        Ok(())
+    }
 }
