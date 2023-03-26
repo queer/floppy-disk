@@ -959,4 +959,14 @@ mod tests {
 
         Ok(())
     }
+
+    #[tokio::test]
+    async fn test_create_dir_all() -> Result<()> {
+        let mut fs = MemFloppyDisk::new();
+        fs.create_dir_all("/test/a/b/c").await?;
+        let metadata = fs.metadata("/test/a/b/c").await?;
+        assert!(metadata.is_dir().await);
+
+        Ok(())
+    }
 }
