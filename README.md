@@ -40,7 +40,7 @@ being async-only.
 ```rust
 let fs = ...; // MemFloppyDisk::new() | TokioFloppyDisk::new()
 fs.create_dir_all("/foo/bar").await?;
-fs.write_all("/foo/bar/baz.txt", b"hello world").await?;
+fs.write("/foo/bar/baz.txt", b"hello world").await?;
 let contents = fs.read_to_string("/foo/bar/baz.txt").await?;
 assert_eq!(contents, "hello world");
 ```
