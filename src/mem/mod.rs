@@ -1,6 +1,9 @@
 use std::collections::BTreeMap;
 use std::ffi::OsString;
+use std::io::Read;
 use std::io::Result;
+use std::io::Seek;
+use std::io::Write;
 use std::path::Path;
 use std::path::PathBuf;
 use std::pin::Pin;
@@ -572,14 +575,6 @@ impl FloppyFile for MemFile {
     }
 }
 
-fn run_here<F: Future>(fut: F) -> F::Output {
-    // TODO: This is evil
-    // Adapted from https://stackoverflow.com/questions/66035290
-    let handle = tokio::runtime::Handle::try_current().unwrap();
-    let _guard = handle.enter();
-    futures::executor::block_on(fut)
-}
-
 impl AsyncSeek for MemFile {
     fn start_seek(self: Pin<&mut Self>, position: std::io::SeekFrom) -> Result<()> {
         let mut this = self.get_mut();
@@ -674,6 +669,73 @@ impl AsyncWrite for MemFile {
         _cx: &mut std::task::Context<'_>,
     ) -> std::task::Poll<Result<()>> {
         std::task::Poll::Ready(Ok(()))
+    }
+}
+
+impl Read for MemFile {
+    fn read(&mut self, buf: &mut [u8]) -> Result<usize> {
+        run_here_outside_of_tokio_context(async {
+            let mut this = self;
+            let inode = this.inode.read().await;
+            let buffer = inode.buffer();
+
+            let len = buf.len();
+            let position = this.position as usize;
+
+            if position >= buffer.len() {
+                return Ok(0);
+            }
+
+            let end = std::cmp::min(position + len, buffer.len());
+            let slice = &buffer[position..end];
+            buf[..slice.len()].copy_from_slice(slice);
+            this.position += slice.len() as u64;
+
+            Ok(slice.len())
+        })
+    }
+}
+
+impl Write for MemFile {
+    fn write(&mut self, buf: &[u8]) -> Result<usize> {
+        run_here_outside_of_tokio_context(async {
+            let this = self;
+            let mut inode = this.inode.write().await;
+
+            let position = this.position;
+            let len = buf.len();
+
+            let buffer = inode.buffer_mut();
+            buffer.resize(position as usize + len, 0);
+            buffer[position as usize..position as usize + len].copy_from_slice(buf);
+
+            this.position += len as u64;
+
+            Ok(len)
+        })
+    }
+
+    fn flush(&mut self) -> Result<()> {
+        Ok(())
+    }
+}
+
+impl Seek for MemFile {
+    fn seek(&mut self, pos: std::io::SeekFrom) -> Result<u64> {
+        match pos {
+            std::io::SeekFrom::Start(pos) => self.position = pos,
+            std::io::SeekFrom::End(pos) => run_here(async {
+                let inode = self.inode.read().await;
+                self.position = (inode.len() as i64 + pos) as u64;
+
+                if self.position > inode.len() {
+                    self.position = inode.len();
+                }
+            }),
+            std::io::SeekFrom::Current(pos) => self.position = (self.position as i64 + pos) as u64,
+        }
+
+        Ok(self.position)
     }
 }
 
@@ -857,11 +919,30 @@ impl FloppyDirEntry for MemDirEntry {
     }
 }
 
+fn run_here<F: Future>(fut: F) -> F::Output {
+    // TODO: This is evil
+    // Adapted from https://stackoverflow.com/questions/66035290
+    let handle = tokio::runtime::Handle::try_current().unwrap();
+    let _guard = handle.enter();
+    futures::executor::block_on(fut)
+}
+
+fn run_here_outside_of_tokio_context<F: Future>(fut: F) -> F::Output {
+    // TODO: This is slightly less-evil than the previous one but still pretty bad
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .build()
+        .unwrap();
+
+    rt.block_on(fut)
+}
+
 #[cfg(test)]
 mod tests {
+    use tokio::sync::RwLock;
+
     use super::*;
     use crate::*;
-    use std::io::Result;
+    use std::io::{Result, SeekFrom};
 
     #[tokio::test]
     async fn test_mem_floppy_disk() -> Result<()> {
@@ -1081,6 +1162,21 @@ mod tests {
         let fs = MemFloppyDisk::new();
         fs.write("/test.txt", "asdf").await?;
         assert_eq!("asdf", fs.read_to_string("/test.txt").await?);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_read_write_seek_impls_for_memfile() -> Result<()> {
+        let mut file = MemFile {
+            position: 0,
+            inode: Arc::new(RwLock::new(Inode::new_file(0, "/test.txt", vec![]))),
+        };
+        file.write_all(b"asdf")?;
+        file.seek(SeekFrom::Start(0))?;
+        let mut buf = Vec::new();
+        file.read_to_end(&mut buf)?;
+        assert_eq!(b"asdf", buf.as_slice());
 
         Ok(())
     }
