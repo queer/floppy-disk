@@ -1,11 +1,7 @@
 use std::collections::BTreeMap;
 use std::ffi::OsString;
-use std::io::Read;
-use std::io::Result;
-use std::io::Seek;
-use std::io::Write;
-use std::path::Path;
-use std::path::PathBuf;
+use std::io::{Read, Result, Seek, Write};
+use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::sync::Arc;
 use std::time::SystemTime;
@@ -13,14 +9,13 @@ use std::time::SystemTime;
 use derivative::Derivative;
 use futures::Future;
 use tokio::io::{AsyncRead, AsyncSeek, AsyncWrite};
-use tokio::sync::Mutex;
-use tokio::sync::RwLockWriteGuard;
+use tokio::sync::{Mutex, RwLockWriteGuard};
 
-use crate::FloppyDirEntry;
-use crate::FloppyDisk;
-use crate::FloppyReadDir;
-use crate::FloppyUnixPermissions;
-use crate::{FloppyFile, FloppyFileType, FloppyMetadata, FloppyPermissions};
+// TODO: DirBuilder, OpenOptions
+use crate::{
+    FloppyDirBuilder, FloppyDirEntry, FloppyDisk, FloppyFile, FloppyFileType, FloppyMetadata,
+    FloppyPermissions, FloppyReadDir, FloppyUnixPermissions,
+};
 
 use self::inode::{Inode, InodeType};
 
@@ -154,10 +149,11 @@ impl MemFloppyDisk<'_> {
 }
 
 #[async_trait::async_trait]
-impl<'a> FloppyDisk for MemFloppyDisk<'a> {
+impl<'a> FloppyDisk<'a> for MemFloppyDisk<'a> {
     type Metadata = MemMetadata;
     type ReadDir = MemReadDir;
     type Permissions = MemPermissions;
+    type DirBuilder = MemDirBuilder<'a>;
 
     async fn canonicalize<P: AsRef<Path> + Send>(&self, path: P) -> Result<PathBuf> {
         // Resolve all .. and symlinks
@@ -521,6 +517,15 @@ impl<'a> FloppyDisk for MemFloppyDisk<'a> {
         self.insert_inode(&mut fs, path, inode)?;
 
         Ok(())
+    }
+
+    fn new_dir_builder(&'a self) -> Self::DirBuilder {
+        MemDirBuilder {
+            fs: self,
+            recursive: false,
+            #[cfg(unix)]
+            mode: 0o777,
+        }
     }
 }
 
@@ -919,6 +924,36 @@ impl FloppyDirEntry for MemDirEntry {
     }
 }
 
+#[derive(Debug)]
+pub struct MemDirBuilder<'a> {
+    fs: &'a MemFloppyDisk<'a>,
+    recursive: bool,
+    #[cfg(unix)]
+    mode: u32,
+}
+
+#[async_trait::async_trait]
+impl FloppyDirBuilder for MemDirBuilder<'_> {
+    fn recursive(&mut self, recursive: bool) -> &mut Self {
+        self.recursive = recursive;
+        self
+    }
+
+    async fn create<P: AsRef<Path> + Send>(&self, path: P) -> Result<()> {
+        if self.recursive {
+            self.fs.create_dir_all(path).await
+        } else {
+            self.fs.create_dir(path).await
+        }
+    }
+
+    #[cfg(unix)]
+    fn mode(&mut self, mode: u32) -> &mut Self {
+        self.mode = mode;
+        self
+    }
+}
+
 fn run_here<F: Future>(fut: F) -> F::Output {
     // TODO: This is evil
     // Adapted from https://stackoverflow.com/questions/66035290
@@ -1177,6 +1212,30 @@ mod tests {
         let mut buf = Vec::new();
         file.read_to_end(&mut buf)?;
         assert_eq!(b"asdf", buf.as_slice());
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_dir_builder() -> Result<()> {
+        let fs = MemFloppyDisk::new();
+        {
+            let mut builder = fs.new_dir_builder();
+            builder.recursive(true);
+            builder.create("/test/a/b/c").await?;
+
+            assert!(fs.metadata("/test").await?.is_dir().await);
+            assert!(fs.metadata("/test/a").await?.is_dir().await);
+            assert!(fs.metadata("/test/a/b").await?.is_dir().await);
+            assert!(fs.metadata("/test/a/b/c").await?.is_dir().await);
+        }
+
+        {
+            let mut builder = fs.new_dir_builder();
+            builder.recursive(false);
+            let res = builder.create("/test2/a/b/c").await;
+            assert!(res.is_err());
+        }
 
         Ok(())
     }

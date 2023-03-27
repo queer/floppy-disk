@@ -19,10 +19,11 @@ impl TokioFloppyDisk {
 }
 
 #[async_trait::async_trait]
-impl FloppyDisk for TokioFloppyDisk {
+impl<'a> FloppyDisk<'a> for TokioFloppyDisk {
     type Metadata = TokioMetadata;
     type ReadDir = TokioReadDir;
     type Permissions = TokioPermissions;
+    type DirBuilder = TokioDirBuilder;
 
     async fn canonicalize<P: AsRef<Path> + Send>(&self, path: P) -> Result<PathBuf> {
         tokio::fs::canonicalize(path).await
@@ -106,6 +107,10 @@ impl FloppyDisk for TokioFloppyDisk {
         contents: impl AsRef<[u8]> + Send,
     ) -> Result<()> {
         tokio::fs::write(path, contents).await
+    }
+
+    fn new_dir_builder(&'a self) -> Self::DirBuilder {
+        TokioDirBuilder(DirBuilder::new())
     }
 }
 
@@ -192,10 +197,6 @@ pub struct TokioDirBuilder(#[doc(hidden)] DirBuilder);
 
 #[async_trait::async_trait]
 impl FloppyDirBuilder for TokioDirBuilder {
-    fn new() -> Self {
-        Self(DirBuilder::new())
-    }
-
     fn recursive(&mut self, recursive: bool) -> &mut Self {
         self.0.recursive(recursive);
         self

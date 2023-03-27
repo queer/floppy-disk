@@ -1,4 +1,5 @@
 //! DIY: `#[derive(Clone, Debug)]`
+#![deny(unsafe_code)]
 
 use std::ffi::OsString;
 use std::fmt::Debug;
@@ -22,10 +23,11 @@ pub mod prelude {
 }
 
 #[async_trait::async_trait]
-pub trait FloppyDisk: Debug {
+pub trait FloppyDisk<'a>: Debug {
     type Metadata: FloppyMetadata;
     type ReadDir: FloppyReadDir;
     type Permissions: FloppyPermissions;
+    type DirBuilder: FloppyDirBuilder;
     // type TempDir: FloppyTempDir;
 
     async fn canonicalize<P: AsRef<Path> + Send>(&self, path: P) -> Result<PathBuf>;
@@ -73,6 +75,8 @@ pub trait FloppyDisk: Debug {
         path: P,
         contents: impl AsRef<[u8]> + Send,
     ) -> Result<()>;
+
+    fn new_dir_builder(&'a self) -> Self::DirBuilder;
 }
 
 #[allow(clippy::len_without_is_empty)]
@@ -112,7 +116,6 @@ pub trait FloppyUnixPermissions: Debug {
 
 #[async_trait::async_trait]
 pub trait FloppyDirBuilder: Debug {
-    fn new() -> Self;
     fn recursive(&mut self, recursive: bool) -> &mut Self;
     async fn create<P: AsRef<Path> + Send>(&self, path: P) -> Result<()>;
     #[cfg(unix)]
