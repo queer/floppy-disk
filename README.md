@@ -17,7 +17,7 @@ but have your tests hit a fake in-memory filesystem instead.
 ## Features
 
 - Pluggable filesystem backends
-  - In-memory
+  - In-memory (WIP)
   - Tokio
 - Write-your-own with the `FloppyDisk` trait
 - Fully-async
