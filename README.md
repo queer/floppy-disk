@@ -44,3 +44,16 @@ fs.write("/foo/bar/baz.txt", b"hello world").await?;
 let contents = fs.read_to_string("/foo/bar/baz.txt").await?;
 assert_eq!(contents, "hello world");
 ```
+
+Passing a `FloppyDisk` around:
+
+```rust
+struct MyStruct<'a, F: FloppyDisk<'a>> {
+    fs: F,
+    _marker: PhantomData<&'a ()>,
+}
+
+async fn my_fn<'a, F: FloppyDisk<'a>> {
+   // ...
+}
+```

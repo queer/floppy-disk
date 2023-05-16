@@ -22,6 +22,21 @@ pub mod prelude {
     pub use crate::tokio_fs::TokioFloppyDisk;
 }
 
+// #[async_trait::async_trait]
+// pub trait FloppyLoader<'a, Metadata, ReadDir, Permissions, DirBuilder> {
+//     async fn load() -> Option<
+//         Box<
+//             dyn FloppyDisk<
+//                 'a,
+//                 Metadata = Metadata,
+//                 ReadDir = ReadDir,
+//                 Permissions = Permissions,
+//                 DirBuilder = DirBuilder,
+//             >,
+//         >,
+//     >;
+// }
+
 #[async_trait::async_trait]
 pub trait FloppyDisk<'a>: Debug {
     type Metadata: FloppyMetadata;
