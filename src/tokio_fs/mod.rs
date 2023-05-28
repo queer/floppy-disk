@@ -1,6 +1,5 @@
 use std::ffi::OsString;
 use std::fs::{FileType, Metadata, Permissions};
-use std::os::unix::prelude::OsStrExt;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 use std::time::SystemTime;
@@ -128,6 +127,7 @@ impl FloppyDiskUnixExt for TokioFloppyDisk {
         tokio::task::spawn_blocking(move || {
             // TODO: Figure out getting rid of
             unsafe {
+                use std::os::unix::prelude::OsStrExt;
                 libc::chown(
                     path.as_os_str().as_bytes().as_ptr() as *const libc::c_char,
                     uid,
@@ -184,6 +184,19 @@ impl FloppyMetadata for TokioMetadata {
 
     async fn created(&self) -> Result<SystemTime> {
         self.0.created()
+    }
+}
+
+#[cfg(unix)]
+impl FloppyUnixMetadata for TokioMetadata {
+    fn uid(&self) -> Result<u32> {
+        use std::os::unix::prelude::MetadataExt;
+        Ok(self.0.uid())
+    }
+
+    fn gid(&self) -> Result<u32> {
+        use std::os::unix::prelude::MetadataExt;
+        Ok(self.0.gid())
     }
 }
 

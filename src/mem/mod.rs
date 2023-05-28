@@ -14,7 +14,8 @@ pub type InMemoryUnixFS = rsfs_tokio::mem::unix::FS;
 // TODO: DirBuilder, OpenOptions
 use crate::{
     FloppyDirBuilder, FloppyDirEntry, FloppyDisk, FloppyDiskUnixExt, FloppyFile, FloppyFileType,
-    FloppyMetadata, FloppyOpenOptions, FloppyPermissions, FloppyReadDir, FloppyUnixPermissions,
+    FloppyMetadata, FloppyOpenOptions, FloppyPermissions, FloppyReadDir, FloppyUnixMetadata,
+    FloppyUnixPermissions,
 };
 
 #[derive(Derivative)]
@@ -380,6 +381,16 @@ impl FloppyMetadata for MemMetadata {
 
     async fn created(&self) -> Result<SystemTime> {
         self.metadata.created()
+    }
+}
+
+impl FloppyUnixMetadata for MemMetadata {
+    fn uid(&self) -> Result<u32> {
+        self.metadata.uid()
+    }
+
+    fn gid(&self) -> Result<u32> {
+        self.metadata.gid()
     }
 }
 

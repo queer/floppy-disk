@@ -15,7 +15,7 @@ pub mod prelude {
     pub use crate::{
         FloppyDirBuilder, FloppyDirEntry, FloppyDisk, FloppyDiskUnixExt, FloppyFile,
         FloppyFileType, FloppyMetadata, FloppyOpenOptions, FloppyPermissions, FloppyReadDir,
-        FloppyUnixPermissions,
+        FloppyUnixMetadata, FloppyUnixPermissions,
     };
 
     pub use crate::mem::MemFloppyDisk;
@@ -102,6 +102,12 @@ pub trait FloppyMetadata: Debug {
     async fn modified(&self) -> Result<SystemTime>;
     async fn accessed(&self) -> Result<SystemTime>;
     async fn created(&self) -> Result<SystemTime>;
+}
+
+#[async_trait::async_trait]
+pub trait FloppyUnixMetadata {
+    fn uid(&self) -> Result<u32>;
+    fn gid(&self) -> Result<u32>;
 }
 
 #[async_trait::async_trait]
