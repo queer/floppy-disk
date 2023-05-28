@@ -1,5 +1,4 @@
 //! DIY: `#[derive(Clone, Debug)]`
-#![deny(unsafe_code)]
 
 use std::ffi::OsString;
 use std::fmt::Debug;
@@ -14,8 +13,9 @@ pub mod tokio_fs;
 
 pub mod prelude {
     pub use crate::{
-        FloppyDirBuilder, FloppyDirEntry, FloppyDisk, FloppyFile, FloppyFileType, FloppyMetadata,
-        FloppyOpenOptions, FloppyPermissions, FloppyReadDir, FloppyUnixPermissions,
+        FloppyDirBuilder, FloppyDirEntry, FloppyDisk, FloppyDiskUnixExt, FloppyFile,
+        FloppyFileType, FloppyMetadata, FloppyOpenOptions, FloppyPermissions, FloppyReadDir,
+        FloppyUnixPermissions,
     };
 
     pub use crate::mem::MemFloppyDisk;
@@ -80,6 +80,11 @@ pub trait FloppyDisk<'a>: Debug {
     fn new_dir_builder(&'a self) -> Self::DirBuilder;
 
     fn new_open_options(&'a self) -> Self::OpenOptions;
+}
+
+#[async_trait::async_trait]
+pub trait FloppyDiskUnixExt {
+    async fn chown<P: Into<PathBuf> + Send>(&self, path: P, uid: u32, gid: u32) -> Result<()>;
 }
 
 #[allow(clippy::len_without_is_empty)]

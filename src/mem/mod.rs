@@ -13,8 +13,8 @@ pub type InMemoryUnixFS = rsfs_tokio::mem::unix::FS;
 
 // TODO: DirBuilder, OpenOptions
 use crate::{
-    FloppyDirBuilder, FloppyDirEntry, FloppyDisk, FloppyFile, FloppyFileType, FloppyMetadata,
-    FloppyOpenOptions, FloppyPermissions, FloppyReadDir, FloppyUnixPermissions,
+    FloppyDirBuilder, FloppyDirEntry, FloppyDisk, FloppyDiskUnixExt, FloppyFile, FloppyFileType,
+    FloppyMetadata, FloppyOpenOptions, FloppyPermissions, FloppyReadDir, FloppyUnixPermissions,
 };
 
 #[derive(Derivative)]
@@ -161,6 +161,13 @@ impl<'a> FloppyDisk<'a> for MemFloppyDisk {
             create: false,
             create_new: false,
         }
+    }
+}
+
+#[async_trait::async_trait]
+impl FloppyDiskUnixExt for MemFloppyDisk {
+    async fn chown<P: Into<PathBuf> + Send>(&self, path: P, uid: u32, gid: u32) -> Result<()> {
+        self.fs.set_ownership(path.into(), uid, gid).await
     }
 }
 
