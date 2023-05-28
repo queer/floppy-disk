@@ -24,6 +24,7 @@ impl<'a> FloppyDisk<'a> for TokioFloppyDisk {
     type ReadDir = TokioReadDir;
     type Permissions = TokioPermissions;
     type DirBuilder = TokioDirBuilder;
+    type OpenOptions = TokioOpenOptions;
 
     async fn canonicalize<P: AsRef<Path> + Send>(&self, path: P) -> Result<PathBuf> {
         tokio::fs::canonicalize(path).await
@@ -111,6 +112,10 @@ impl<'a> FloppyDisk<'a> for TokioFloppyDisk {
 
     fn new_dir_builder(&'a self) -> Self::DirBuilder {
         TokioDirBuilder(DirBuilder::new())
+    }
+
+    fn new_open_options(&'a self) -> Self::OpenOptions {
+        TokioOpenOptions(OpenOptions::new())
     }
 }
 
@@ -267,10 +272,6 @@ pub struct TokioOpenOptions(#[doc(hidden)] OpenOptions);
 #[async_trait::async_trait]
 impl FloppyOpenOptions for TokioOpenOptions {
     type File = TokioFile;
-
-    fn new() -> Self {
-        Self(OpenOptions::new())
-    }
 
     fn read(&mut self, read: bool) -> &mut Self {
         self.0.read(read);

@@ -7,14 +7,14 @@ use std::time::SystemTime;
 use derivative::Derivative;
 use futures::{Future, TryStreamExt};
 use rsfs_tokio::unix_ext::{GenFSExt, PermissionsExt};
-use rsfs_tokio::{DirEntry, File, FileType, GenFS, Metadata};
+use rsfs_tokio::{DirEntry, File, FileType, GenFS, Metadata, OpenOptions};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncSeek, AsyncSeekExt, AsyncWrite, AsyncWriteExt};
 pub type InMemoryUnixFS = rsfs_tokio::mem::unix::FS;
 
 // TODO: DirBuilder, OpenOptions
 use crate::{
     FloppyDirBuilder, FloppyDirEntry, FloppyDisk, FloppyFile, FloppyFileType, FloppyMetadata,
-    FloppyPermissions, FloppyReadDir, FloppyUnixPermissions,
+    FloppyOpenOptions, FloppyPermissions, FloppyReadDir, FloppyUnixPermissions,
 };
 
 #[derive(Derivative)]
@@ -38,6 +38,7 @@ impl<'a> FloppyDisk<'a> for MemFloppyDisk {
     type ReadDir = MemReadDir;
     type Permissions = MemPermissions;
     type DirBuilder = MemDirBuilder<'a>;
+    type OpenOptions = MemOpenOptions<'a>;
 
     async fn canonicalize<P: AsRef<Path> + Send>(&self, path: P) -> Result<PathBuf> {
         self.fs.canonicalize(path).await
@@ -147,6 +148,18 @@ impl<'a> FloppyDisk<'a> for MemFloppyDisk {
             recursive: false,
             #[cfg(unix)]
             mode: 0o777,
+        }
+    }
+
+    fn new_open_options(&'a self) -> Self::OpenOptions {
+        MemOpenOptions {
+            fs: self,
+            read: false,
+            write: false,
+            append: false,
+            truncate: false,
+            create: false,
+            create_new: false,
         }
     }
 }
@@ -463,6 +476,64 @@ impl FloppyDirBuilder for MemDirBuilder<'_> {
     fn mode(&mut self, mode: u32) -> &mut Self {
         self.mode = mode;
         self
+    }
+}
+
+#[derive(Debug)]
+pub struct MemOpenOptions<'a> {
+    fs: &'a MemFloppyDisk,
+    read: bool,
+    write: bool,
+    append: bool,
+    truncate: bool,
+    create: bool,
+    create_new: bool,
+}
+
+#[async_trait::async_trait]
+impl FloppyOpenOptions for MemOpenOptions<'_> {
+    type File = MemFile;
+
+    fn read(&mut self, read: bool) -> &mut Self {
+        self.read = read;
+        self
+    }
+
+    fn write(&mut self, write: bool) -> &mut Self {
+        self.write = write;
+        self
+    }
+
+    fn append(&mut self, append: bool) -> &mut Self {
+        self.append = append;
+        self
+    }
+
+    fn truncate(&mut self, truncate: bool) -> &mut Self {
+        self.truncate = truncate;
+        self
+    }
+
+    fn create(&mut self, create: bool) -> &mut Self {
+        self.create = create;
+        self
+    }
+
+    fn create_new(&mut self, create_new: bool) -> &mut Self {
+        self.create_new = create_new;
+        self
+    }
+
+    async fn open<P: AsRef<Path> + Send>(&self, path: P) -> Result<Self::File> {
+        let mut options = self.fs.fs.new_openopts();
+        options.read(self.read);
+        options.write(self.write);
+        options.append(self.append);
+        options.truncate(self.truncate);
+        options.create(self.create);
+        options.create_new(self.create_new);
+        let file = options.open(path).await?;
+        Ok(MemFile { file })
     }
 }
 

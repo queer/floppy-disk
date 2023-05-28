@@ -22,27 +22,13 @@ pub mod prelude {
     pub use crate::tokio_fs::TokioFloppyDisk;
 }
 
-// #[async_trait::async_trait]
-// pub trait FloppyLoader<'a, Metadata, ReadDir, Permissions, DirBuilder> {
-//     async fn load() -> Option<
-//         Box<
-//             dyn FloppyDisk<
-//                 'a,
-//                 Metadata = Metadata,
-//                 ReadDir = ReadDir,
-//                 Permissions = Permissions,
-//                 DirBuilder = DirBuilder,
-//             >,
-//         >,
-//     >;
-// }
-
 #[async_trait::async_trait]
 pub trait FloppyDisk<'a>: Debug {
     type Metadata: FloppyMetadata;
     type ReadDir: FloppyReadDir;
     type Permissions: FloppyPermissions;
     type DirBuilder: FloppyDirBuilder;
+    type OpenOptions: FloppyOpenOptions;
     // type TempDir: FloppyTempDir;
 
     async fn canonicalize<P: AsRef<Path> + Send>(&self, path: P) -> Result<PathBuf>;
@@ -92,6 +78,8 @@ pub trait FloppyDisk<'a>: Debug {
     ) -> Result<()>;
 
     fn new_dir_builder(&'a self) -> Self::DirBuilder;
+
+    fn new_open_options(&'a self) -> Self::OpenOptions;
 }
 
 #[allow(clippy::len_without_is_empty)]
@@ -169,7 +157,6 @@ pub trait FloppyFile: AsyncRead + AsyncWrite + AsyncSeek + Debug {
 pub trait FloppyOpenOptions: Debug {
     type File: FloppyFile;
 
-    fn new() -> Self;
     fn read(&mut self, read: bool) -> &mut Self;
     fn write(&mut self, write: bool) -> &mut Self;
     fn append(&mut self, append: bool) -> &mut Self;
