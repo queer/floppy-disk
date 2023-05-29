@@ -35,11 +35,14 @@ impl MemFloppyDisk {
 
 #[async_trait::async_trait]
 impl<'a> FloppyDisk<'a> for MemFloppyDisk {
-    type Metadata = MemMetadata;
-    type ReadDir = MemReadDir;
-    type Permissions = MemPermissions;
     type DirBuilder = MemDirBuilder<'a>;
-    type OpenOptions = MemOpenOptions<'a>;
+    type DirEntry = MemDirEntry;
+    type File = MemFile;
+    type FileType = MemFileType;
+    type Metadata = MemMetadata;
+    type OpenOptions = MemOpenOptions;
+    type Permissions = MemPermissions;
+    type ReadDir = MemReadDir;
 
     async fn canonicalize<P: AsRef<Path> + Send>(&self, path: P) -> Result<PathBuf> {
         self.fs.canonicalize(path).await
@@ -151,18 +154,6 @@ impl<'a> FloppyDisk<'a> for MemFloppyDisk {
             mode: 0o777,
         }
     }
-
-    fn new_open_options(&'a self) -> Self::OpenOptions {
-        MemOpenOptions {
-            fs: self,
-            read: false,
-            write: false,
-            append: false,
-            truncate: false,
-            create: false,
-            create_new: false,
-        }
-    }
 }
 
 #[async_trait::async_trait]
@@ -179,10 +170,7 @@ pub struct MemFile {
 }
 
 #[async_trait::async_trait]
-impl FloppyFile for MemFile {
-    type Metadata = MemMetadata;
-    type Permissions = MemPermissions;
-
+impl<'a> FloppyFile<'a, MemFloppyDisk> for MemFile {
     async fn sync_all(&mut self) -> Result<()> {
         Ok(())
     }
@@ -195,26 +183,29 @@ impl FloppyFile for MemFile {
         self.file.set_len(size).await
     }
 
-    async fn metadata(&self) -> Result<Self::Metadata> {
-        Ok(Self::Metadata {
+    async fn metadata(&self) -> Result<<MemFloppyDisk as FloppyDisk>::Metadata> {
+        Ok(MemMetadata {
             metadata: self.file.metadata().await?,
         })
     }
 
-    async fn try_clone(&self) -> Result<Box<Self>> {
+    async fn try_clone(&'a self) -> Result<Box<Self>> {
         Ok(Box::new(Self {
             file: self.file.try_clone().await?,
         }))
     }
 
-    async fn set_permissions(&self, perm: Self::Permissions) -> Result<()> {
+    async fn set_permissions(
+        &self,
+        perm: <MemFloppyDisk as FloppyDisk>::Permissions,
+    ) -> Result<()> {
         self.file
             .set_permissions(rsfs_tokio::mem::Permissions::from_mode(perm.mode()))
             .await
     }
 
-    async fn permissions(&self) -> Result<Self::Permissions> {
-        Ok(Self::Permissions {
+    async fn permissions(&self) -> Result<<MemFloppyDisk as FloppyDisk>::Permissions> {
+        Ok(MemPermissions {
             mode: self.file.metadata().await?.permissions().mode(),
         })
     }
@@ -340,12 +331,8 @@ pub struct MemMetadata {
 }
 
 #[async_trait::async_trait]
-impl FloppyMetadata for MemMetadata {
-    type FileType = MemFileType;
-
-    type Permissions = MemPermissions;
-
-    async fn file_type(&self) -> Self::FileType {
+impl<'a> FloppyMetadata<'a, MemFloppyDisk> for MemMetadata {
+    async fn file_type(&self) -> <MemFloppyDisk as FloppyDisk>::FileType {
         MemFileType(self.metadata.file_type())
     }
 
@@ -365,7 +352,7 @@ impl FloppyMetadata for MemMetadata {
         self.metadata.len()
     }
 
-    async fn permissions(&self) -> Self::Permissions {
+    async fn permissions(&self) -> <MemFloppyDisk as FloppyDisk>::Permissions {
         MemPermissions {
             mode: self.metadata.permissions().mode(),
         }
@@ -423,10 +410,8 @@ impl MemReadDir {
 }
 
 #[async_trait::async_trait]
-impl FloppyReadDir for MemReadDir {
-    type DirEntry = MemDirEntry;
-
-    async fn next_entry(&mut self) -> Result<Option<Self::DirEntry>> {
+impl<'a> FloppyReadDir<'a, MemFloppyDisk> for MemReadDir {
+    async fn next_entry(&mut self) -> Result<Option<<MemFloppyDisk as FloppyDisk>::DirEntry>> {
         match self.read_dir.try_next().await {
             Ok(Some(Some(entry))) => Ok(Some(MemDirEntry { entry })),
             Ok(Some(None)) => Ok(None),
@@ -442,22 +427,19 @@ pub struct MemDirEntry {
 }
 
 #[async_trait::async_trait]
-impl FloppyDirEntry for MemDirEntry {
-    type Metadata = MemMetadata;
-    type FileType = MemFileType;
-
+impl<'a> FloppyDirEntry<'a, MemFloppyDisk> for MemDirEntry {
     fn path(&self) -> PathBuf {
         self.entry.path()
     }
     fn file_name(&self) -> OsString {
         self.entry.file_name()
     }
-    async fn metadata(&self) -> Result<Self::Metadata> {
-        Ok(Self::Metadata {
+    async fn metadata(&self) -> Result<<MemFloppyDisk as FloppyDisk>::Metadata> {
+        Ok(MemMetadata {
             metadata: self.entry.metadata().await?,
         })
     }
-    async fn file_type(&self) -> Result<Self::FileType> {
+    async fn file_type(&self) -> Result<<MemFloppyDisk as FloppyDisk>::FileType> {
         Ok(MemFileType(self.entry.file_type().await?))
     }
 
@@ -497,9 +479,8 @@ impl FloppyDirBuilder for MemDirBuilder<'_> {
     }
 }
 
-#[derive(Debug)]
-pub struct MemOpenOptions<'a> {
-    fs: &'a MemFloppyDisk,
+#[derive(Debug, Copy, Clone)]
+pub struct MemOpenOptions {
     read: bool,
     write: bool,
     append: bool,
@@ -509,41 +490,54 @@ pub struct MemOpenOptions<'a> {
 }
 
 #[async_trait::async_trait]
-impl FloppyOpenOptions for MemOpenOptions<'_> {
-    type File = MemFile;
+impl<'a> FloppyOpenOptions<'a, MemFloppyDisk> for MemOpenOptions {
+    fn new() -> Self {
+        Self {
+            read: false,
+            write: false,
+            append: false,
+            truncate: false,
+            create: false,
+            create_new: false,
+        }
+    }
 
-    fn read(&mut self, read: bool) -> &mut Self {
+    fn read(mut self, read: bool) -> Self {
         self.read = read;
         self
     }
 
-    fn write(&mut self, write: bool) -> &mut Self {
+    fn write(mut self, write: bool) -> Self {
         self.write = write;
         self
     }
 
-    fn append(&mut self, append: bool) -> &mut Self {
+    fn append(mut self, append: bool) -> Self {
         self.append = append;
         self
     }
 
-    fn truncate(&mut self, truncate: bool) -> &mut Self {
+    fn truncate(mut self, truncate: bool) -> Self {
         self.truncate = truncate;
         self
     }
 
-    fn create(&mut self, create: bool) -> &mut Self {
+    fn create(mut self, create: bool) -> Self {
         self.create = create;
         self
     }
 
-    fn create_new(&mut self, create_new: bool) -> &mut Self {
+    fn create_new(mut self, create_new: bool) -> Self {
         self.create_new = create_new;
         self
     }
 
-    async fn open<P: AsRef<Path> + Send>(&self, path: P) -> Result<Self::File> {
-        let mut options = self.fs.fs.new_openopts();
+    async fn open<P: AsRef<Path> + Send>(
+        &self,
+        disk: &mut MemFloppyDisk,
+        path: P,
+    ) -> Result<<MemFloppyDisk as FloppyDisk<'a>>::File> {
+        let mut options = disk.fs.new_openopts();
         options.read(self.read);
         options.write(self.write);
         options.append(self.append);

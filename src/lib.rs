@@ -4,9 +4,14 @@ use std::ffi::OsString;
 use std::fmt::Debug;
 use std::io::Result;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::time::SystemTime;
 
+use futures::Future;
 use tokio::io::{AsyncRead, AsyncSeek, AsyncWrite};
+use tokio::sync::Mutex;
+use tokio::task::JoinHandle;
+use tracing::{debug, error};
 
 pub mod mem;
 pub mod tokio_fs;
@@ -23,12 +28,15 @@ pub mod prelude {
 }
 
 #[async_trait::async_trait]
-pub trait FloppyDisk<'a>: Debug {
-    type Metadata: FloppyMetadata;
-    type ReadDir: FloppyReadDir;
-    type Permissions: FloppyPermissions;
-    type DirBuilder: FloppyDirBuilder;
-    type OpenOptions: FloppyOpenOptions;
+pub trait FloppyDisk<'a>: Debug + std::marker::Unpin + std::marker::Sized + Send {
+    type DirBuilder: FloppyDirBuilder + Send + 'a;
+    type DirEntry: FloppyDirEntry<'a, Self> + Send + 'a;
+    type File: FloppyFile<'a, Self> + Send + 'a;
+    type FileType: FloppyFileType + Send + 'a;
+    type Metadata: FloppyMetadata<'a, Self> + Send + 'a;
+    type OpenOptions: FloppyOpenOptions<'a, Self> + Send + 'a;
+    type Permissions: FloppyPermissions + Send + 'a;
+    type ReadDir: FloppyReadDir<'a, Self> + Send + 'a;
     // type TempDir: FloppyTempDir;
 
     async fn canonicalize<P: AsRef<Path> + Send>(&self, path: P) -> Result<PathBuf>;
@@ -78,8 +86,6 @@ pub trait FloppyDisk<'a>: Debug {
     ) -> Result<()>;
 
     fn new_dir_builder(&'a self) -> Self::DirBuilder;
-
-    fn new_open_options(&'a self) -> Self::OpenOptions;
 }
 
 #[async_trait::async_trait]
@@ -89,16 +95,13 @@ pub trait FloppyDiskUnixExt {
 
 #[allow(clippy::len_without_is_empty)]
 #[async_trait::async_trait]
-pub trait FloppyMetadata: Debug {
-    type FileType: FloppyFileType;
-    type Permissions: FloppyPermissions;
-
-    async fn file_type(&self) -> Self::FileType;
+pub trait FloppyMetadata<'a, Disk: FloppyDisk<'a>>: Debug + std::marker::Unpin + Send {
+    async fn file_type(&self) -> Disk::FileType;
     async fn is_dir(&self) -> bool;
     async fn is_file(&self) -> bool;
     async fn is_symlink(&self) -> bool;
     async fn len(&self) -> u64;
-    async fn permissions(&self) -> Self::Permissions;
+    async fn permissions(&self) -> Disk::Permissions;
     async fn modified(&self) -> Result<SystemTime>;
     async fn accessed(&self) -> Result<SystemTime>;
     async fn created(&self) -> Result<SystemTime>;
@@ -111,25 +114,23 @@ pub trait FloppyUnixMetadata {
 }
 
 #[async_trait::async_trait]
-pub trait FloppyReadDir: Debug {
-    type DirEntry: FloppyDirEntry;
-
-    async fn next_entry(&mut self) -> Result<Option<Self::DirEntry>>;
+pub trait FloppyReadDir<'a, Disk: FloppyDisk<'a>>: Debug + std::marker::Unpin + Send {
+    async fn next_entry(&mut self) -> Result<Option<Disk::DirEntry>>;
 }
 
-pub trait FloppyPermissions: Debug {
+pub trait FloppyPermissions: Debug + std::marker::Unpin + Send {
     fn readonly(&self) -> bool;
     fn set_readonly(&mut self, readonly: bool);
 }
 
-pub trait FloppyUnixPermissions: Debug {
+pub trait FloppyUnixPermissions: Debug + std::marker::Unpin + Send {
     fn mode(&self) -> u32;
     fn set_mode(&mut self, mode: u32);
     fn from_mode(mode: u32) -> Self;
 }
 
 #[async_trait::async_trait]
-pub trait FloppyDirBuilder: Debug {
+pub trait FloppyDirBuilder: Debug + std::marker::Unpin + Send {
     fn recursive(&mut self, recursive: bool) -> &mut Self;
     async fn create<P: AsRef<Path> + Send>(&self, path: P) -> Result<()>;
     #[cfg(unix)]
@@ -137,47 +138,42 @@ pub trait FloppyDirBuilder: Debug {
 }
 
 #[async_trait::async_trait]
-pub trait FloppyDirEntry: Debug {
-    type Metadata: FloppyMetadata;
-    type FileType: FloppyFileType;
-
+pub trait FloppyDirEntry<'a, Disk: FloppyDisk<'a>>: Debug + std::marker::Unpin + Send {
     fn path(&self) -> PathBuf;
     fn file_name(&self) -> OsString;
-    async fn metadata(&self) -> Result<Self::Metadata>;
-    async fn file_type(&self) -> Result<Self::FileType>;
+    async fn metadata(&self) -> Result<Disk::Metadata>;
+    async fn file_type(&self) -> Result<Disk::FileType>;
 
     #[cfg(unix)]
     fn ino(&self) -> u64;
 }
 
 #[async_trait::async_trait]
-pub trait FloppyFile: AsyncRead + AsyncWrite + AsyncSeek + Debug {
-    type Metadata: FloppyMetadata;
-    type Permissions: FloppyPermissions;
-
+pub trait FloppyFile<'a, Disk: FloppyDisk<'a>>:
+    AsyncRead + AsyncWrite + AsyncSeek + Debug + std::marker::Unpin + Send
+{
     async fn sync_all(&mut self) -> Result<()>;
     async fn sync_data(&mut self) -> Result<()>;
     async fn set_len(&mut self, size: u64) -> Result<()>;
-    async fn metadata(&self) -> Result<Self::Metadata>;
-    async fn try_clone(&self) -> Result<Box<Self>>;
-    async fn set_permissions(&self, perm: Self::Permissions) -> Result<()>;
-    async fn permissions(&self) -> Result<Self::Permissions>;
+    async fn metadata(&self) -> Result<Disk::Metadata>;
+    async fn try_clone(&'a self) -> Result<Box<Disk::File>>;
+    async fn set_permissions(&self, perm: Disk::Permissions) -> Result<()>;
+    async fn permissions(&self) -> Result<Disk::Permissions>;
 }
 
 #[async_trait::async_trait]
-pub trait FloppyOpenOptions: Debug {
-    type File: FloppyFile;
-
-    fn read(&mut self, read: bool) -> &mut Self;
-    fn write(&mut self, write: bool) -> &mut Self;
-    fn append(&mut self, append: bool) -> &mut Self;
-    fn truncate(&mut self, truncate: bool) -> &mut Self;
-    fn create(&mut self, create: bool) -> &mut Self;
-    fn create_new(&mut self, create_new: bool) -> &mut Self;
-    async fn open<P: AsRef<Path> + Send>(&self, path: P) -> Result<Self::File>;
+pub trait FloppyOpenOptions<'a, Disk: FloppyDisk<'a>>: Debug + std::marker::Unpin + Send {
+    fn new() -> Self;
+    fn read(self, read: bool) -> Self;
+    fn write(self, write: bool) -> Self;
+    fn append(self, append: bool) -> Self;
+    fn truncate(self, truncate: bool) -> Self;
+    fn create(self, create: bool) -> Self;
+    fn create_new(self, create_new: bool) -> Self;
+    async fn open<P: AsRef<Path> + Send>(&self, disk: &mut Disk, path: P) -> Result<Disk::File>;
 }
 
-pub trait FloppyFileType: Debug {
+pub trait FloppyFileType: Debug + std::marker::Unpin + Send {
     fn is_dir(&self) -> bool;
     fn is_file(&self) -> bool;
     fn is_symlink(&self) -> bool;

@@ -20,11 +20,14 @@ impl TokioFloppyDisk {
 
 #[async_trait::async_trait]
 impl<'a> FloppyDisk<'a> for TokioFloppyDisk {
-    type Metadata = TokioMetadata;
-    type ReadDir = TokioReadDir;
-    type Permissions = TokioPermissions;
     type DirBuilder = TokioDirBuilder;
+    type DirEntry = TokioDirEntry;
+    type File = TokioFile;
+    type FileType = TokioFileType;
+    type Metadata = TokioMetadata;
     type OpenOptions = TokioOpenOptions;
+    type Permissions = TokioPermissions;
+    type ReadDir = TokioReadDir;
 
     async fn canonicalize<P: AsRef<Path> + Send>(&self, path: P) -> Result<PathBuf> {
         tokio::fs::canonicalize(path).await
@@ -113,10 +116,6 @@ impl<'a> FloppyDisk<'a> for TokioFloppyDisk {
     fn new_dir_builder(&'a self) -> Self::DirBuilder {
         TokioDirBuilder(DirBuilder::new())
     }
-
-    fn new_open_options(&'a self) -> Self::OpenOptions {
-        TokioOpenOptions(OpenOptions::new())
-    }
 }
 
 #[cfg(unix)]
@@ -145,12 +144,8 @@ impl FloppyDiskUnixExt for TokioFloppyDisk {
 pub struct TokioMetadata(#[doc(hidden)] Metadata);
 
 #[async_trait::async_trait]
-impl FloppyMetadata for TokioMetadata {
-    type FileType = TokioFileType;
-
-    type Permissions = TokioPermissions;
-
-    async fn file_type(&self) -> Self::FileType {
+impl<'a> FloppyMetadata<'a, TokioFloppyDisk> for TokioMetadata {
+    async fn file_type(&self) -> <TokioFloppyDisk as FloppyDisk<'a>>::FileType {
         TokioFileType(self.0.file_type())
     }
 
@@ -170,7 +165,7 @@ impl FloppyMetadata for TokioMetadata {
         self.0.len()
     }
 
-    async fn permissions(&self) -> Self::Permissions {
+    async fn permissions(&self) -> <TokioFloppyDisk as FloppyDisk<'a>>::Permissions {
         TokioPermissions(self.0.permissions())
     }
 
@@ -205,10 +200,10 @@ impl FloppyUnixMetadata for TokioMetadata {
 pub struct TokioReadDir(#[doc(hidden)] ReadDir);
 
 #[async_trait::async_trait]
-impl FloppyReadDir for TokioReadDir {
-    type DirEntry = TokioDirEntry;
-
-    async fn next_entry(&mut self) -> Result<Option<Self::DirEntry>> {
+impl<'a> FloppyReadDir<'a, TokioFloppyDisk> for TokioReadDir {
+    async fn next_entry(
+        &mut self,
+    ) -> Result<Option<<TokioFloppyDisk as FloppyDisk<'a>>::DirEntry>> {
         self.0
             .next_entry()
             .await
@@ -256,15 +251,12 @@ impl FloppyDirBuilder for TokioDirBuilder {
 pub struct TokioDirEntry(#[doc(hidden)] DirEntry);
 
 #[async_trait::async_trait]
-impl FloppyDirEntry for TokioDirEntry {
-    type FileType = TokioFileType;
-    type Metadata = TokioMetadata;
-
+impl<'a> FloppyDirEntry<'a, TokioFloppyDisk> for TokioDirEntry {
     fn file_name(&self) -> OsString {
         self.0.file_name()
     }
 
-    async fn file_type(&self) -> Result<Self::FileType> {
+    async fn file_type(&self) -> Result<<TokioFloppyDisk as FloppyDisk<'a>>::FileType> {
         self.0.file_type().await.map(TokioFileType)
     }
 
@@ -304,40 +296,52 @@ impl FloppyFileType for TokioFileType {
 pub struct TokioOpenOptions(#[doc(hidden)] OpenOptions);
 
 #[async_trait::async_trait]
-impl FloppyOpenOptions for TokioOpenOptions {
-    type File = TokioFile;
-
-    fn read(&mut self, read: bool) -> &mut Self {
-        self.0.read(read);
-        self
+impl<'a> FloppyOpenOptions<'a, TokioFloppyDisk> for TokioOpenOptions {
+    fn new() -> Self {
+        Self(OpenOptions::new())
     }
 
-    fn write(&mut self, write: bool) -> &mut Self {
-        self.0.write(write);
-        self
+    fn read(self, read: bool) -> Self {
+        let mut oo = self.0;
+        oo.read(read);
+        Self(oo)
     }
 
-    fn append(&mut self, append: bool) -> &mut Self {
-        self.0.append(append);
-        self
+    fn write(self, write: bool) -> Self {
+        let mut oo = self.0;
+        oo.write(write);
+        Self(oo)
     }
 
-    fn truncate(&mut self, truncate: bool) -> &mut Self {
-        self.0.truncate(truncate);
-        self
+    fn append(self, append: bool) -> Self {
+        let mut oo = self.0;
+        oo.append(append);
+        Self(oo)
     }
 
-    fn create(&mut self, create: bool) -> &mut Self {
-        self.0.create(create);
-        self
+    fn truncate(self, truncate: bool) -> Self {
+        let mut oo = self.0;
+        oo.truncate(truncate);
+        Self(oo)
     }
 
-    fn create_new(&mut self, create_new: bool) -> &mut Self {
-        self.0.create_new(create_new);
-        self
+    fn create(self, create: bool) -> Self {
+        let mut oo = self.0;
+        oo.create(create);
+        Self(oo)
     }
 
-    async fn open<P: AsRef<Path> + Send>(&self, path: P) -> Result<Self::File> {
+    fn create_new(self, create_new: bool) -> Self {
+        let mut oo = self.0;
+        oo.create_new(create_new);
+        Self(oo)
+    }
+
+    async fn open<P: AsRef<Path> + Send>(
+        &self,
+        _disk: &mut TokioFloppyDisk,
+        path: P,
+    ) -> Result<<TokioFloppyDisk as FloppyDisk<'a>>::File> {
         self.0.open(path).await.map(TokioFile)
     }
 }
@@ -347,10 +351,7 @@ impl FloppyOpenOptions for TokioOpenOptions {
 pub struct TokioFile(#[doc(hidden)] File);
 
 #[async_trait::async_trait]
-impl FloppyFile for TokioFile {
-    type Metadata = TokioMetadata;
-    type Permissions = TokioPermissions;
-
+impl<'a> FloppyFile<'a, TokioFloppyDisk> for TokioFile {
     async fn sync_all(&mut self) -> Result<()> {
         self.0.sync_all().await
     }
@@ -363,22 +364,25 @@ impl FloppyFile for TokioFile {
         self.0.set_len(size).await
     }
 
-    async fn metadata(&self) -> Result<Self::Metadata> {
+    async fn metadata(&self) -> Result<<TokioFloppyDisk as FloppyDisk<'a>>::Metadata> {
         self.0.metadata().await.map(TokioMetadata)
     }
 
-    async fn try_clone(&self) -> Result<Box<Self>> {
+    async fn try_clone(&'a self) -> Result<Box<Self>> {
         self.0
             .try_clone()
             .await
             .map(|file| Box::new(TokioFile(file)))
     }
 
-    async fn set_permissions(&self, perm: Self::Permissions) -> Result<()> {
+    async fn set_permissions(
+        &self,
+        perm: <TokioFloppyDisk as FloppyDisk>::Permissions,
+    ) -> Result<()> {
         self.0.set_permissions(perm.0).await
     }
 
-    async fn permissions(&self) -> Result<Self::Permissions> {
+    async fn permissions(&self) -> Result<<TokioFloppyDisk as FloppyDisk<'a>>::Permissions> {
         self.0
             .metadata()
             .await
