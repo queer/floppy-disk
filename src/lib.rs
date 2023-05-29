@@ -63,7 +63,7 @@ pub trait FloppyDisk<'a>: Debug + std::marker::Unpin + std::marker::Sized + Send
     async fn rename<P: AsRef<Path> + Send>(&self, from: P, to: P) -> Result<()>;
 
     async fn set_permissions<P: AsRef<Path> + Send>(
-        &mut self,
+        &self,
         path: P,
         perm: Self::Permissions,
     ) -> Result<()>;

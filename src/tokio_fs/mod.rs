@@ -86,7 +86,7 @@ impl<'a> FloppyDisk<'a> for TokioFloppyDisk {
     }
 
     async fn set_permissions<P: AsRef<Path> + Send>(
-        &mut self,
+        &self,
         path: P,
         perm: Self::Permissions,
     ) -> Result<()> {

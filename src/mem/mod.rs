@@ -111,7 +111,7 @@ impl<'a> FloppyDisk<'a> for MemFloppyDisk {
     }
 
     async fn set_permissions<P: AsRef<Path> + Send>(
-        &mut self,
+        &self,
         path: P,
         perm: Self::Permissions,
     ) -> Result<()> {
@@ -755,7 +755,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_set_permissions() -> Result<()> {
-        let mut fs = MemFloppyDisk::new();
+        let fs = MemFloppyDisk::new();
         fs.write("/test.txt", "asdf").await?;
         fs.set_permissions("/test.txt", MemPermissions::from_mode(0o777))
             .await?;
