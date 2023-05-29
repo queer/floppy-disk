@@ -145,39 +145,39 @@ pub struct TokioMetadata(#[doc(hidden)] Metadata);
 
 #[async_trait::async_trait]
 impl<'a> FloppyMetadata<'a, TokioFloppyDisk> for TokioMetadata {
-    async fn file_type(&self) -> <TokioFloppyDisk as FloppyDisk<'a>>::FileType {
+    fn file_type(&self) -> <TokioFloppyDisk as FloppyDisk<'a>>::FileType {
         TokioFileType(self.0.file_type())
     }
 
-    async fn is_dir(&self) -> bool {
+    fn is_dir(&self) -> bool {
         self.0.is_dir()
     }
 
-    async fn is_file(&self) -> bool {
+    fn is_file(&self) -> bool {
         self.0.is_file()
     }
 
-    async fn is_symlink(&self) -> bool {
+    fn is_symlink(&self) -> bool {
         self.0.is_symlink()
     }
 
-    async fn len(&self) -> u64 {
+    fn len(&self) -> u64 {
         self.0.len()
     }
 
-    async fn permissions(&self) -> <TokioFloppyDisk as FloppyDisk<'a>>::Permissions {
+    fn permissions(&self) -> <TokioFloppyDisk as FloppyDisk<'a>>::Permissions {
         TokioPermissions(self.0.permissions())
     }
 
-    async fn modified(&self) -> Result<SystemTime> {
+    fn modified(&self) -> Result<SystemTime> {
         self.0.modified()
     }
 
-    async fn accessed(&self) -> Result<SystemTime> {
+    fn accessed(&self) -> Result<SystemTime> {
         self.0.accessed()
     }
 
-    async fn created(&self) -> Result<SystemTime> {
+    fn created(&self) -> Result<SystemTime> {
         self.0.created()
     }
 }
@@ -339,7 +339,7 @@ impl<'a> FloppyOpenOptions<'a, TokioFloppyDisk> for TokioOpenOptions {
 
     async fn open<P: AsRef<Path> + Send>(
         &self,
-        _disk: &'a mut TokioFloppyDisk,
+        _disk: &'a TokioFloppyDisk,
         path: P,
     ) -> Result<<TokioFloppyDisk as FloppyDisk<'a>>::File> {
         self.0.open(path).await.map(TokioFile)

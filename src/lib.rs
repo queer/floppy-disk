@@ -91,15 +91,15 @@ pub trait FloppyDiskUnixExt {
 #[allow(clippy::len_without_is_empty)]
 #[async_trait::async_trait]
 pub trait FloppyMetadata<'a, Disk: FloppyDisk<'a>>: Debug + std::marker::Unpin + Send {
-    async fn file_type(&self) -> Disk::FileType;
-    async fn is_dir(&self) -> bool;
-    async fn is_file(&self) -> bool;
-    async fn is_symlink(&self) -> bool;
-    async fn len(&self) -> u64;
-    async fn permissions(&self) -> Disk::Permissions;
-    async fn modified(&self) -> Result<SystemTime>;
-    async fn accessed(&self) -> Result<SystemTime>;
-    async fn created(&self) -> Result<SystemTime>;
+    fn file_type(&self) -> Disk::FileType;
+    fn is_dir(&self) -> bool;
+    fn is_file(&self) -> bool;
+    fn is_symlink(&self) -> bool;
+    fn len(&self) -> u64;
+    fn permissions(&self) -> Disk::Permissions;
+    fn modified(&self) -> Result<SystemTime>;
+    fn accessed(&self) -> Result<SystemTime>;
+    fn created(&self) -> Result<SystemTime>;
 }
 
 #[async_trait::async_trait]
@@ -165,7 +165,7 @@ pub trait FloppyOpenOptions<'a, Disk: FloppyDisk<'a>>: Debug + std::marker::Unpi
     fn truncate(self, truncate: bool) -> Self;
     fn create(self, create: bool) -> Self;
     fn create_new(self, create_new: bool) -> Self;
-    async fn open<P: AsRef<Path> + Send>(&self, disk: &'a mut Disk, path: P) -> Result<Disk::File>;
+    async fn open<P: AsRef<Path> + Send>(&self, disk: &'a Disk, path: P) -> Result<Disk::File>;
 }
 
 pub trait FloppyFileType: Debug + std::marker::Unpin + Send {

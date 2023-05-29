@@ -332,41 +332,41 @@ pub struct MemMetadata {
 
 #[async_trait::async_trait]
 impl<'a> FloppyMetadata<'a, MemFloppyDisk> for MemMetadata {
-    async fn file_type(&self) -> <MemFloppyDisk as FloppyDisk>::FileType {
+    fn file_type(&self) -> <MemFloppyDisk as FloppyDisk>::FileType {
         MemFileType(self.metadata.file_type())
     }
 
-    async fn is_dir(&self) -> bool {
+    fn is_dir(&self) -> bool {
         self.metadata.is_dir()
     }
 
-    async fn is_file(&self) -> bool {
+    fn is_file(&self) -> bool {
         self.metadata.is_file()
     }
 
-    async fn is_symlink(&self) -> bool {
+    fn is_symlink(&self) -> bool {
         self.metadata.file_type().is_symlink()
     }
 
-    async fn len(&self) -> u64 {
+    fn len(&self) -> u64 {
         self.metadata.len()
     }
 
-    async fn permissions(&self) -> <MemFloppyDisk as FloppyDisk>::Permissions {
+    fn permissions(&self) -> <MemFloppyDisk as FloppyDisk>::Permissions {
         MemPermissions {
             mode: self.metadata.permissions().mode(),
         }
     }
 
-    async fn modified(&self) -> Result<SystemTime> {
+    fn modified(&self) -> Result<SystemTime> {
         self.metadata.modified()
     }
 
-    async fn accessed(&self) -> Result<SystemTime> {
+    fn accessed(&self) -> Result<SystemTime> {
         self.metadata.accessed()
     }
 
-    async fn created(&self) -> Result<SystemTime> {
+    fn created(&self) -> Result<SystemTime> {
         self.metadata.created()
     }
 }
@@ -534,7 +534,7 @@ impl<'a> FloppyOpenOptions<'a, MemFloppyDisk> for MemOpenOptions {
 
     async fn open<P: AsRef<Path> + Send>(
         &self,
-        disk: &'a mut MemFloppyDisk,
+        disk: &'a MemFloppyDisk,
         path: P,
     ) -> Result<<MemFloppyDisk as FloppyDisk<'a>>::File> {
         let mut options = disk.fs.new_openopts();
@@ -619,7 +619,7 @@ mod tests {
         let fs = MemFloppyDisk::new();
         fs.create_dir("/test").await?;
         let metadata = fs.metadata("/test").await?;
-        assert!(metadata.is_dir().await);
+        assert!(metadata.is_dir());
 
         Ok(())
     }
@@ -629,7 +629,7 @@ mod tests {
         let fs = MemFloppyDisk::new();
         fs.create_dir_all("/test/a/b/c").await?;
         let metadata = fs.metadata("/test/a/b/c").await?;
-        assert!(metadata.is_dir().await);
+        assert!(metadata.is_dir());
 
         Ok(())
     }
@@ -649,8 +649,8 @@ mod tests {
         let fs = MemFloppyDisk::new();
         fs.write("/test.txt", "asdf").await?;
         let metadata = fs.metadata("/test.txt").await?;
-        assert!(metadata.is_file().await);
-        assert_eq!(4, metadata.len().await);
+        assert!(metadata.is_file());
+        assert_eq!(4, metadata.len());
 
         Ok(())
     }
@@ -760,7 +760,7 @@ mod tests {
         fs.set_permissions("/test.txt", MemPermissions::from_mode(0o777))
             .await?;
         let metadata = fs.metadata("/test.txt").await?;
-        assert_eq!(0o777, metadata.permissions().await.mode());
+        assert_eq!(0o777, metadata.permissions().mode());
 
         Ok(())
     }
@@ -771,7 +771,7 @@ mod tests {
         fs.write("/test.txt", "asdf").await?;
         fs.symlink("/test.txt", "/test2.txt").await?;
         let metadata = fs.symlink_metadata("/test2.txt").await?;
-        assert!(metadata.is_symlink().await);
+        assert!(metadata.is_symlink());
 
         Ok(())
     }
@@ -804,10 +804,10 @@ mod tests {
             builder.recursive(true);
             builder.create("/test/a/b/c").await?;
 
-            assert!(fs.metadata("/test").await?.is_dir().await);
-            assert!(fs.metadata("/test/a").await?.is_dir().await);
-            assert!(fs.metadata("/test/a/b").await?.is_dir().await);
-            assert!(fs.metadata("/test/a/b/c").await?.is_dir().await);
+            assert!(fs.metadata("/test").await?.is_dir());
+            assert!(fs.metadata("/test/a").await?.is_dir());
+            assert!(fs.metadata("/test/a/b").await?.is_dir());
+            assert!(fs.metadata("/test/a/b/c").await?.is_dir());
         }
 
         {
