@@ -1,6 +1,6 @@
 [package]
 name = "floppy-disk"
-version = "0.1.4"
+version = "0.1.5"
 edition = "2021"
 license = "MIT"
 description = "async filesystem facade for rust!"
@@ -9,7 +9,6 @@ repository = "https://github.com/queer/floppy-disk"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-async-recursion = "1.0.4"
 async-trait = "0.1.66"
 derivative = "2.2.0"
 derive-getters = "0.2.0"
@@ -18,4 +17,3 @@ libc = "0.2.144"
 rand = "0.8.5"
 rsfs-tokio = "0.5.0"
 tokio = { version = "1.26.0", features = ["fs", "sync", "rt", "test-util", "macros"] }
-tracing = "0.1.37"
