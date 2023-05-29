@@ -10,12 +10,27 @@ use tokio::io::ReadBuf;
 use crate::*;
 
 #[derive(Default, Debug)]
-pub struct TokioFloppyDisk;
+pub struct TokioFloppyDisk {
+    scope: Option<PathBuf>,
+}
 
 impl TokioFloppyDisk {
-    pub fn new() -> Self {
-        Self
+    pub fn new(scope: Option<PathBuf>) -> Self {
+        Self { scope }
     }
+}
+
+macro_rules! scoped {
+    ( $this: expr, $x:ident ) => {
+        let $x = if let Some(ref scope) = $this.scope {
+            let path: &Path = $x.as_ref();
+            let path = path.strip_prefix("/").unwrap_or(&path).to_path_buf();
+            scope.join(path)
+        } else {
+            let path: &Path = $x.as_ref();
+            path.to_path_buf()
+        };
+    };
 }
 
 #[async_trait::async_trait]
@@ -30,58 +45,75 @@ impl<'a> FloppyDisk<'a> for TokioFloppyDisk {
     type ReadDir = TokioReadDir;
 
     async fn canonicalize<P: AsRef<Path> + Send>(&self, path: P) -> Result<PathBuf> {
+        scoped!(self, path);
         tokio::fs::canonicalize(path).await
     }
 
     async fn copy<P: AsRef<Path> + Send>(&self, from: P, to: P) -> Result<u64> {
+        scoped!(self, from);
+        scoped!(self, to);
         tokio::fs::copy(from, to).await
     }
 
     async fn create_dir<P: AsRef<Path> + Send>(&self, path: P) -> Result<()> {
+        scoped!(self, path);
         tokio::fs::create_dir(path).await
     }
 
     async fn create_dir_all<P: AsRef<Path> + Send>(&self, path: P) -> Result<()> {
+        scoped!(self, path);
         tokio::fs::create_dir_all(path).await
     }
 
     async fn hard_link<P: AsRef<Path> + Send>(&self, src: P, dst: P) -> Result<()> {
+        scoped!(self, src);
+        scoped!(self, dst);
         tokio::fs::hard_link(src, dst).await
     }
 
     async fn metadata<P: AsRef<Path> + Send>(&self, path: P) -> Result<Self::Metadata> {
+        scoped!(self, path);
         tokio::fs::metadata(path).await.map(TokioMetadata)
     }
 
     async fn read<P: AsRef<Path> + Send>(&self, path: P) -> Result<Vec<u8>> {
+        scoped!(self, path);
         tokio::fs::read(path).await
     }
 
     async fn read_dir<P: AsRef<Path> + Send>(&self, path: P) -> Result<Self::ReadDir> {
+        scoped!(self, path);
         tokio::fs::read_dir(path).await.map(TokioReadDir)
     }
 
     async fn read_link<P: AsRef<Path> + Send>(&self, path: P) -> Result<PathBuf> {
+        scoped!(self, path);
         tokio::fs::read_link(path).await
     }
 
     async fn read_to_string<P: AsRef<Path> + Send>(&self, path: P) -> Result<String> {
+        scoped!(self, path);
         tokio::fs::read_to_string(path).await
     }
 
     async fn remove_dir<P: AsRef<Path> + Send>(&self, path: P) -> Result<()> {
+        scoped!(self, path);
         tokio::fs::remove_dir(path).await
     }
 
     async fn remove_dir_all<P: AsRef<Path> + Send>(&self, path: P) -> Result<()> {
+        scoped!(self, path);
         tokio::fs::remove_dir_all(path).await
     }
 
     async fn remove_file<P: AsRef<Path> + Send>(&self, path: P) -> Result<()> {
+        scoped!(self, path);
         tokio::fs::remove_file(path).await
     }
 
     async fn rename<P: AsRef<Path> + Send>(&self, from: P, to: P) -> Result<()> {
+        scoped!(self, from);
+        scoped!(self, to);
         tokio::fs::rename(from, to).await
     }
 
@@ -90,18 +122,23 @@ impl<'a> FloppyDisk<'a> for TokioFloppyDisk {
         path: P,
         perm: Self::Permissions,
     ) -> Result<()> {
+        scoped!(self, path);
         tokio::fs::set_permissions(path, perm.0).await
     }
 
     async fn symlink<P: AsRef<Path> + Send>(&self, src: P, dst: P) -> Result<()> {
+        scoped!(self, src);
+        scoped!(self, dst);
         tokio::fs::symlink(src, dst).await
     }
 
     async fn symlink_metadata<P: AsRef<Path> + Send>(&self, path: P) -> Result<Self::Metadata> {
+        scoped!(self, path);
         tokio::fs::symlink_metadata(path).await.map(TokioMetadata)
     }
 
     async fn try_exists<P: AsRef<Path> + Send>(&self, path: P) -> Result<bool> {
+        scoped!(self, path);
         tokio::fs::try_exists(path).await
     }
 
@@ -110,6 +147,7 @@ impl<'a> FloppyDisk<'a> for TokioFloppyDisk {
         path: P,
         contents: impl AsRef<[u8]> + Send,
     ) -> Result<()> {
+        scoped!(self, path);
         tokio::fs::write(path, contents).await
     }
 
@@ -123,10 +161,12 @@ impl<'a> FloppyDisk<'a> for TokioFloppyDisk {
 impl FloppyDiskUnixExt for TokioFloppyDisk {
     async fn chown<P: Into<PathBuf> + Send>(&self, path: P, uid: u32, gid: u32) -> Result<()> {
         let path = path.into();
+        scoped!(self, path);
         tokio::task::spawn_blocking(move || {
+            use std::os::unix::prelude::OsStrExt;
+
             // TODO: Figure out getting rid of
             unsafe {
-                use std::os::unix::prelude::OsStrExt;
                 libc::chown(
                     path.as_os_str().as_bytes().as_ptr() as *const libc::c_char,
                     uid,
@@ -475,3 +515,22 @@ impl AsyncWrite for TokioFile {
 //         &self.path
 //     }
 // }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn test_scoping_works() -> std::io::Result<()> {
+        let fs = TokioFloppyDisk::new(Some(PathBuf::from("/tmp")));
+        fs.write("/a", "asdf").await?;
+        let out = fs.read_to_string("/a").await?;
+
+        assert_eq!("asdf", out);
+        assert!(tokio::fs::metadata("/tmp/a").await.is_ok());
+
+        fs.remove_file("/a").await?;
+
+        Ok(())
+    }
+}
