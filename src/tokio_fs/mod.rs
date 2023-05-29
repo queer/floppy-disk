@@ -339,7 +339,7 @@ impl<'a> FloppyOpenOptions<'a, TokioFloppyDisk> for TokioOpenOptions {
 
     async fn open<P: AsRef<Path> + Send>(
         &self,
-        _disk: &mut TokioFloppyDisk,
+        _disk: &'a mut TokioFloppyDisk,
         path: P,
     ) -> Result<<TokioFloppyDisk as FloppyDisk<'a>>::File> {
         self.0.open(path).await.map(TokioFile)

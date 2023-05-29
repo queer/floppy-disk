@@ -165,7 +165,7 @@ pub trait FloppyOpenOptions<'a, Disk: FloppyDisk<'a>>: Debug + std::marker::Unpi
     fn truncate(self, truncate: bool) -> Self;
     fn create(self, create: bool) -> Self;
     fn create_new(self, create_new: bool) -> Self;
-    async fn open<P: AsRef<Path> + Send>(&self, disk: &mut Disk, path: P) -> Result<Disk::File>;
+    async fn open<P: AsRef<Path> + Send>(&self, disk: &'a mut Disk, path: P) -> Result<Disk::File>;
 }
 
 pub trait FloppyFileType: Debug + std::marker::Unpin + Send {

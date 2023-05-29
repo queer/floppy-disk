@@ -534,7 +534,7 @@ impl<'a> FloppyOpenOptions<'a, MemFloppyDisk> for MemOpenOptions {
 
     async fn open<P: AsRef<Path> + Send>(
         &self,
-        disk: &mut MemFloppyDisk,
+        disk: &'a mut MemFloppyDisk,
         path: P,
     ) -> Result<<MemFloppyDisk as FloppyDisk<'a>>::File> {
         let mut options = disk.fs.new_openopts();
