@@ -1,5 +1,6 @@
 use std::ffi::OsString;
 use std::fs::{FileType, Metadata, Permissions};
+use std::os::unix::prelude::PermissionsExt;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 use std::time::SystemTime;
@@ -262,6 +263,21 @@ impl FloppyPermissions for TokioPermissions {
 
     fn set_readonly(&mut self, readonly: bool) {
         self.0.set_readonly(readonly)
+    }
+}
+
+#[cfg(unix)]
+impl FloppyUnixPermissions for TokioPermissions {
+    fn mode(&self) -> u32 {
+        self.0.mode()
+    }
+
+    fn set_mode(&mut self, mode: u32) {
+        self.0.set_mode(mode)
+    }
+
+    fn from_mode(mode: u32) -> Self {
+        Self(Permissions::from_mode(mode))
     }
 }
 
