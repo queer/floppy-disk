@@ -81,6 +81,31 @@ pub trait FloppyDisk<'a>: Debug + std::marker::Unpin + std::marker::Sized + Send
     ) -> Result<()>;
 
     fn new_dir_builder(&'a self) -> Self::DirBuilder;
+
+    /// Search the given directory **non-recursively** for a file or directory
+    /// matching the given needle. If a file is found, return its path.
+    async fn find_in_dir<P: AsRef<Path> + Send, S: Into<String> + Send>(
+        &self,
+        path: P,
+        needle: S,
+    ) -> Result<Option<PathBuf>> {
+        let needle = needle.into();
+        let mut dir = self.read_dir(path).await?;
+        while let Some(entry) = dir.next_entry().await? {
+            let path = entry.path();
+            if let Some(file_name) = path.file_name() {
+                // TODO: This is kinda icky
+                let file_name = file_name.to_string_lossy();
+                if file_name == needle
+                    || file_name.starts_with(&needle)
+                    || file_name.ends_with(&needle)
+                {
+                    return Ok(Some(path));
+                }
+            }
+        }
+        Ok(None)
+    }
 }
 
 #[async_trait::async_trait]
