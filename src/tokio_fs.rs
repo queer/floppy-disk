@@ -26,8 +26,12 @@ macro_rules! scoped {
     ( $this: expr, $x:ident ) => {
         let $x = if let Some(ref scope) = $this.scope {
             let path: &Path = $x.as_ref();
-            let path = path.strip_prefix("/").unwrap_or(&path).to_path_buf();
-            scope.join(path)
+            if path.starts_with(scope) {
+                path.to_path_buf()
+            } else {
+                let path = path.strip_prefix("/").unwrap_or(&path).to_path_buf();
+                scope.join(path)
+            }
         } else {
             let path: &Path = $x.as_ref();
             path.to_path_buf()
