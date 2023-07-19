@@ -272,23 +272,23 @@ impl AsyncWrite for MemFile {
 
 impl Read for MemFile {
     fn read(&mut self, buf: &mut [u8]) -> Result<usize> {
-        run_here_outside_of_tokio_context(async { self.file.read(buf).await })
+        run_here(async { self.file.read(buf).await })
     }
 }
 
 impl Write for MemFile {
     fn write(&mut self, buf: &[u8]) -> Result<usize> {
-        run_here_outside_of_tokio_context(async { self.file.write(buf).await })
+        run_here(async { self.file.write(buf).await })
     }
 
     fn flush(&mut self) -> Result<()> {
-        run_here_outside_of_tokio_context(async { self.file.flush().await })
+        run_here(async { self.file.flush().await })
     }
 }
 
 impl Seek for MemFile {
     fn seek(&mut self, pos: std::io::SeekFrom) -> Result<u64> {
-        run_here_outside_of_tokio_context(async { self.file.seek(pos).await })
+        run_here(async { self.file.seek(pos).await })
     }
 }
 
@@ -549,23 +549,23 @@ impl<'a> FloppyOpenOptions<'a, MemFloppyDisk> for MemOpenOptions {
     }
 }
 
-#[allow(unused)]
 fn run_here<F: Future>(fut: F) -> F::Output {
-    // TODO: This is evil
-    // Adapted from https://stackoverflow.com/questions/66035290
-    let handle = tokio::runtime::Handle::try_current().unwrap();
-    let _guard = handle.enter();
-    futures::executor::block_on(fut)
-}
+    match tokio::runtime::Handle::try_current() {
+        Ok(handle) => {
+            // TODO: This is evil
+            // Adapted from https://stackoverflow.com/questions/66035290
+            let _guard = handle.enter();
+            futures::executor::block_on(fut)
+        }
 
-#[allow(unused)]
-fn run_here_outside_of_tokio_context<F: Future>(fut: F) -> F::Output {
-    // TODO: This is slightly less-evil than the previous one but still pretty bad
-    let rt = tokio::runtime::Builder::new_current_thread()
-        .build()
-        .unwrap();
+        Err(_) => {
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .build()
+                .unwrap();
 
-    rt.block_on(fut)
+            rt.block_on(fut)
+        }
+    }
 }
 
 #[cfg(test)]
